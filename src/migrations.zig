@@ -27,7 +27,7 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
         .description = "initial tables (todos)",
         .ups = &.{
             \\ CREATE TABLE todos (
-            \\   id       PRIMARY KEY       NOT NULL,
+            \\   id       INTEGER PRIMARY KEY,
             \\   title    TEXT              NOT NULL,
             \\   priority INTEGER DEFAULT 3 NOT NULL,
             \\   state    TEXT              NOT NULL
