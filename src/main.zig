@@ -1,6 +1,7 @@
 const std = @import("std");
 const sqlite = @import("sqlite");
 const migrations = @import("migrations.zig");
+const TabWriter = @import("TabWriter.zig");
 
 pub const TodoState = enum {
     new,
@@ -11,7 +12,36 @@ pub const TodoState = enum {
     cancelled,
 };
 
-fn listTodos(_: std.mem.Allocator, _: *sqlite.Db) !void {}
+fn listTodos(allocator: std.mem.Allocator, db: *sqlite.Db) !void {
+    var diags = sqlite.Diagnostics{};
+    var query = db.prepareWithDiags(
+        "SELECT id, title, priority, state FROM todos ORDER BY priority ASC;",
+        .{ .diags = &diags },
+    ) catch |err| {
+        std.log.err("could not prep query {}: {s}", .{ err, diags });
+        return err;
+    };
+    defer query.deinit();
+
+    var tw = TabWriter.init(allocator, "|");
+    defer tw.deinit();
+    try tw.append("ID\tTitle\tPriority\tState\t");
+
+    var it = try query.iterator(struct { id: i64, title: []const u8, priority: i64, state: i64 }, .{});
+    while (try it.nextAlloc(allocator, .{})) |todo| {
+        const state = std.meta.tagName(@intToEnum(TodoState, todo.state));
+        try tw.append(try std.fmt.allocPrint(
+            allocator,
+            "{}\t{s}\t{}\t{s}\t",
+            .{ todo.id, todo.title, todo.priority, state },
+        ));
+    }
+
+    if (tw.strings.items.len > 1) {
+        const stdout = std.io.getStdOut();
+        try tw.writeTo(stdout.writer());
+    }
+}
 
 fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *sqlite.Db) !void {
     var name = args[0];
@@ -32,14 +62,14 @@ fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *sqlite.Db) !void {
         }
     }
 
-    const real_state = std.meta.stringToEnum(state) orelse return error.CouldNotParseField;
+    const real_state = std.meta.stringToEnum(TodoState, state) orelse return error.CouldNotParseField;
 
     var diags = sqlite.Diagnostics{};
     var stmt = db.prepareWithDiags(
         "INSERT INTO todos(title, priority, state) VALUES(?, ?, ?)",
         .{ .diags = &diags },
     ) catch |err| {
-        std.log.err("could not insert {}: {s}", .{err, diags});
+        std.log.err("could not insert {}: {s}", .{ err, diags });
         return err;
     };
     defer stmt.deinit();
@@ -82,11 +112,8 @@ pub fn main() anyerror!void {
     }
 
     if (std.mem.eql(u8, "todo", std.mem.span(args[1]))) {
-        if (args.len < 2) {
-            listTodos(allocator, &db) catch |err| switch (err) {
-                error.CouldNotParseField => {},
-                else => return err,
-            };
+        if (args.len < 3) {
+            try listTodos(allocator, &db);
             return;
         }
 
