@@ -28,23 +28,32 @@ pub const Todo = struct {
     title: []const u8,
     priority: i64,
     state: TodoState,
+    tags: ?[]const u8,
 };
 
 fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
-    var query = try db.prepare("SELECT id, title, priority, state FROM todos ORDER BY state, priority ASC;");
+    const q =
+        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val) AS tags
+        \\FROM todos a
+        \\LEFT JOIN taggings b ON b.todo = a.id
+        \\LEFT JOIN tags c ON c.id = b.tag
+        \\GROUP BY a.id
+        \\ORDER BY state ASC
+    ;
+    var query = try db.prepare(q);
     defer query.deinit();
 
     var tw = TabWriter.init(allocator, "|");
     defer tw.deinit();
-    try tw.append("ID\tTitle\tPriority\tState\t");
+    try tw.append("ID\tTitle\tPriority\tState\tTags\t");
 
-    var it = try query.stmt.iterator(struct { id: i64, title: []const u8, priority: i64, state: i64 }, .{});
+    var it = try query.stmt.iterator(Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
-        const state = std.meta.tagName(try std.meta.intToEnum(TodoState, todo.state));
+        const tags: []const u8 = todo.tags.?;
         try tw.append(try std.fmt.allocPrint(
             allocator,
-            "{}\t{s}\t{}\t{s}\t",
-            .{ todo.id, todo.title, todo.priority, state },
+            "{}\t{s}\t{}\t{s}\t{s}\t",
+            .{ todo.id, todo.title, todo.priority, std.meta.tagName(todo.state), tags },
         ));
     }
 
@@ -67,10 +76,37 @@ const Arg = struct {
     }
 };
 
+fn getTag(db: *Db, tag: []const u8) !?i64 {
+    var stmt = try db.prepare("SELECT id FROM tags WHERE val= ?");
+    defer stmt.deinit();
+
+    return try stmt.one(i64, .{}, .{tag});
+}
+
+fn addTagsToTodo(db: *Db, id: i64, tags: []const u8) !void {
+    var taggings_insert_stmt = try db.prepare("INSERT INTO taggings(tag, todo) VALUES (?, ?);");
+    defer taggings_insert_stmt.deinit();
+
+    var tag_it = std.mem.split(u8, tags, ",");
+    while (tag_it.next()) |tag| {
+        const tag_id = (try getTag(db, tag)) orelse b: {
+            var tag_insert_stmt = try db.prepare("INSERT INTO tags(val) VALUES (?) RETURNING id");
+            defer tag_insert_stmt.deinit();
+
+            const tag_id = (try tag_insert_stmt.one(i64, .{}, .{tag})) orelse return error.SqliteError;
+            break :b tag_id;
+        };
+
+        try taggings_insert_stmt.exec(.{}, .{ tag_id, id });
+        taggings_insert_stmt.stmt.reset();
+    }
+}
+
 fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     var name = args[0];
     var priority: i64 = 3;
     var state: []const u8 = "new";
+    var tags: ?[]const u8 = null;
 
     if (args.len > 1) {
         for (args[1..]) |arg| {
@@ -79,23 +115,28 @@ fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
                 priority = std.fmt.parseInt(i64, a.value, 10) catch return error.CouldNotParseField;
             } else if (std.mem.eql(u8, "state", a.key)) {
                 state = a.value;
+            } else if (std.mem.eql(u8, "tags", a.key)) {
+                tags = a.value;
             }
         }
     }
 
     const real_state = std.meta.stringToEnum(TodoState, state) orelse return error.CouldNotParseField;
 
-    var stmt = try db.prepare("INSERT INTO todos(title, priority, state) VALUES(?, ?, ?)");
+    var stmt = try db.prepare("INSERT INTO todos(title, priority, state) VALUES(?, ?, ?) RETURNING id");
     defer stmt.deinit();
 
-    try stmt.exec(.{}, .{ name, priority, @enumToInt(real_state) });
+    const id = (try stmt.one(i64, .{}, .{ name, priority, @enumToInt(real_state) })) orelse return error.SqliteError;
+    if (tags) |tags_s| try addTagsToTodo(db, id, tags_s);
 }
 
 fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     var tid = std.fmt.parseInt(i64, args[0], 10) catch return error.CouldNotParseField;
     var stmt = try db.prepare("SELECT id, title, priority, state FROM todos WHERE id=? LIMIT 1");
     defer stmt.deinit();
-    var todo = (try stmt.oneAlloc(Todo, gpa, .{}, .{tid})) orelse return error.NotFound;
+    var todo = (try stmt.oneAlloc(struct { id: i64, title: []const u8, priority: i64, state: TodoState }, gpa, .{}, .{tid})) orelse return error.NotFound;
+
+    var tags: ?[]const u8 = null;
 
     for (args[1..]) |arg| {
         const a = try Arg.parse(arg);
@@ -105,13 +146,17 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
             todo.priority = std.fmt.parseInt(i64, a.value, 10) catch return error.CouldNotParseField;
         } else if (std.mem.eql(u8, "state", a.key)) {
             todo.state = std.meta.stringToEnum(TodoState, a.value) orelse return error.CouldNotParseField;
+        } else if (std.mem.eql(u8, "tags", a.key)) {
+            tags = a.value;
         }
     }
 
     var update_stmt = try db.prepare("UPDATE todos SET title = $title, priority = $priority, state = $state WHERE id = $id ;");
     defer update_stmt.deinit();
 
-    try update_stmt.exec(.{}, todo);
+    try update_stmt.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
+
+    if (tags) |tags_s| try addTagsToTodo(db, todo.id, tags_s);
 }
 
 pub fn main() anyerror!void {

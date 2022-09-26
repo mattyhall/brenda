@@ -35,7 +35,7 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
             \\ );
             ,
             \\ CREATE TABLE tags (
-            \\   id  PRIMARY KEY NOT NULL,
+            \\   id  INTEGER PRIMARY KEY,
             \\   val TEXT        NOT NULL
             \\ );
             ,
