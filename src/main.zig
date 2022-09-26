@@ -5,9 +5,9 @@ const TabWriter = @import("TabWriter.zig");
 const Db = @import("Db.zig");
 
 pub const TodoState = enum {
-    new,
     in_progress,
     in_review,
+    new,
     blocked,
     done,
     cancelled,
@@ -31,7 +31,7 @@ pub const Todo = struct {
 };
 
 fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
-    var query = try db.prepare("SELECT id, title, priority, state FROM todos ORDER BY priority ASC;");
+    var query = try db.prepare("SELECT id, title, priority, state FROM todos ORDER BY state, priority ASC;");
     defer query.deinit();
 
     var tw = TabWriter.init(allocator, "|");
