@@ -1,8 +1,8 @@
 const std = @import("std");
 const sqlite = @import("sqlite");
 const migrations = @import("migrations.zig");
-const TabWriter = @import("TabWriter.zig");
 const Db = @import("Db.zig");
+const Style = @import("Style.zig");
 
 pub const TodoState = enum {
     in_progress,
@@ -28,12 +28,12 @@ pub const Todo = struct {
     title: []const u8,
     priority: i64,
     state: TodoState,
-    tags: ?[]const u8,
+    tags: []const u8,
 };
 
 fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     const q =
-        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val) AS tags
+        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val, ":") AS tags
         \\FROM todos a
         \\LEFT JOIN taggings b ON b.todo = a.id
         \\LEFT JOIN tags c ON c.id = b.tag
@@ -43,24 +43,31 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     var query = try db.prepare(q);
     defer query.deinit();
 
-    var tw = TabWriter.init(allocator, "|");
-    defer tw.deinit();
-    try tw.append("ID\tTitle\tPriority\tState\tTags\t");
+    var al = std.ArrayList(u8).init(allocator);
+    defer al.deinit();
 
     var it = try query.stmt.iterator(Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
-        const tags: []const u8 = todo.tags.?;
-        try tw.append(try std.fmt.allocPrint(
-            allocator,
-            "{}\t{s}\t{}\t{s}\t{s}\t",
-            .{ todo.id, todo.title, todo.priority, std.meta.tagName(todo.state), tags },
-        ));
+        try (Style{ .bold = true }).print(al.writer(), "{} ", .{todo.id});
+
+        var state = try std.ascii.allocUpperString(allocator, std.meta.tagName(todo.state));
+        defer allocator.free(state);
+        try (Style{ .foreground = Style.green }).print(al.writer(), "{s} ", .{state});
+
+        try (Style{}).print(al.writer(), "[P-{d}] ", .{todo.priority});
+        try (Style{ .foreground = Style.pink }).print(al.writer(), "{s}", .{todo.title});
+
+        if (todo.tags.len != 0) {
+            try (Style{ .faint = true }).print(al.writer(), " :{s}:\n", .{todo.tags});
+        } else {
+            try al.append('\n');
+        }
     }
 
-    if (tw.strings.items.len > 1) {
-        const stdout = std.io.getStdOut();
-        try tw.writeTo(stdout.writer());
-    }
+    if (al.items.len == 0) return;
+
+    var stdout = std.io.getStdOut();
+    try stdout.writer().writeAll(al.items[0 .. al.items.len - 2]);
 }
 
 const Arg = struct {
