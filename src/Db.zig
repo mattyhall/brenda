@@ -42,6 +42,21 @@ fn StatementWrapper(comptime q: []const u8) type {
             };
         }
 
+        pub fn oneAlloc(
+            self: *Wrapper,
+            comptime Type: type,
+            allocator: std.mem.Allocator,
+            opts: sqlite.QueryOptions,
+            values: anytype,
+        ) !?Type {
+            var custom_opts = opts;
+            custom_opts.diags = &self.diags;
+            return self.stmt.oneAlloc(Type, allocator, custom_opts, values) catch |err| {
+                std.log.err("got error {}: {s}", .{ err, self.diags });
+                return err;
+            };
+        }
+
         pub fn deinit(self: *Wrapper) void {
             self.stmt.deinit();
         }
