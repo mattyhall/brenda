@@ -45,20 +45,32 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
 
     var al = std.ArrayList(u8).init(allocator);
     defer al.deinit();
+    var al_unformatted = std.ArrayList(u8).init(allocator);
+    defer al_unformatted.deinit();
+
+    var winsz = std.mem.zeroes(std.os.system.winsize);
+    _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, std.os.system.T.IOCGWINSZ, @ptrToInt(&winsz));
+    std.log.debug("winsz: {}", .{winsz});
 
     var it = try query.stmt.iterator(Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
         try (Style{ .bold = true }).print(al.writer(), "{} ", .{todo.id});
+        try al_unformatted.writer().print("{} ", .{todo.id});
 
         var state = try std.ascii.allocUpperString(allocator, std.meta.tagName(todo.state));
         defer allocator.free(state);
         try (Style{ .foreground = Style.green }).print(al.writer(), "{s} ", .{state});
+        try al_unformatted.writer().print("{s} ", .{state});
 
         try (Style{}).print(al.writer(), "[P-{d}] ", .{todo.priority});
-        try (Style{ .foreground = Style.pink }).print(al.writer(), "{s}", .{todo.title});
+        try al_unformatted.writer().print("[P-{d}] ", .{todo.priority});
+
+        const used = al_unformatted.items.len + todo.tags.len + 3;
+        const title_space = if (used + todo.title.len > winsz.ws_col) todo.title.len else winsz.ws_col - used;
+        try (Style{ .foreground = Style.pink }).print(al.writer(), "{s:^[1]}", .{todo.title, title_space});
 
         if (todo.tags.len != 0) {
-            try (Style{ .faint = true }).print(al.writer(), " :{s}:\n", .{todo.tags});
+            try (Style{ .faint = true }).print(al.writer(), " :{s}:", .{todo.tags});
         } else {
             try al.append('\n');
         }
@@ -67,7 +79,7 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     if (al.items.len == 0) return;
 
     var stdout = std.io.getStdOut();
-    try stdout.writer().writeAll(al.items[0 .. al.items.len - 2]);
+    try stdout.writer().writeAll(al.items);
 }
 
 const Arg = struct {
