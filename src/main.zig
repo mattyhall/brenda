@@ -2,6 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const migrations = @import("migrations.zig");
 const TabWriter = @import("TabWriter.zig");
+const Db = @import("Db.zig");
 
 pub const TodoState = enum {
     new,
@@ -12,15 +13,8 @@ pub const TodoState = enum {
     cancelled,
 };
 
-fn listTodos(allocator: std.mem.Allocator, db: *sqlite.Db) !void {
-    var diags = sqlite.Diagnostics{};
-    var query = db.prepareWithDiags(
-        "SELECT id, title, priority, state FROM todos ORDER BY priority ASC;",
-        .{ .diags = &diags },
-    ) catch |err| {
-        std.log.err("could not prep query {}: {s}", .{ err, diags });
-        return err;
-    };
+fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
+    var query = try db.prepare("SELECT id, title, priority, state FROM todos ORDER BY priority ASC;");
     defer query.deinit();
 
     var tw = TabWriter.init(allocator, "|");
@@ -43,7 +37,7 @@ fn listTodos(allocator: std.mem.Allocator, db: *sqlite.Db) !void {
     }
 }
 
-fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *sqlite.Db) !void {
+fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     var name = args[0];
     var priority: i64 = 3;
     var state: []const u8 = "new";
@@ -64,14 +58,7 @@ fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *sqlite.Db) !void {
 
     const real_state = std.meta.stringToEnum(TodoState, state) orelse return error.CouldNotParseField;
 
-    var diags = sqlite.Diagnostics{};
-    var stmt = db.prepareWithDiags(
-        "INSERT INTO todos(title, priority, state) VALUES(?, ?, ?)",
-        .{ .diags = &diags },
-    ) catch |err| {
-        std.log.err("could not insert {}: {s}", .{ err, diags });
-        return err;
-    };
+    var stmt = try db.prepare("INSERT INTO todos(title, priority, state) VALUES(?, ?, ?)");
     defer stmt.deinit();
 
     try stmt.exec(.{}, .{ name, priority, @enumToInt(real_state) });
@@ -82,23 +69,7 @@ pub fn main() anyerror!void {
     defer arena.deinit();
     var allocator = arena.allocator();
 
-    const data_dir = try std.fs.getAppDataDir(allocator, "brenda");
-    defer allocator.free(data_dir);
-    std.os.mkdir(data_dir, 0o774) catch |err| switch (err) {
-        error.PathAlreadyExists => {},
-        else => return err,
-    };
-
-    const db_path = try std.fs.path.joinZ(allocator, &.{ data_dir, "data.db" });
-    defer allocator.free(db_path);
-
-    std.log.debug("Opening '{s}'", .{db_path});
-
-    var db = try sqlite.Db.init(.{
-        .mode = sqlite.Db.Mode{ .File = db_path },
-        .open_flags = .{ .write = true, .create = true },
-        .threading_mode = .MultiThread,
-    });
+    var db = try Db.init(allocator);
     defer db.deinit();
 
     _ = try migrations.run(&db);

@@ -1,5 +1,6 @@
 const std = @import("std");
 const sqlite = @import("sqlite");
+const Db = @import("Db.zig");
 
 pub const CURRENT_VERSION = 1;
 
@@ -55,36 +56,28 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
     },
 };
 
-fn createVersionTable(db: *sqlite.Db) !void {
+fn createVersionTable(db: *Db) !void {
     std.log.debug("creating version table", .{});
 
-    var diags = sqlite.Diagnostics{};
-    var stmt = db.prepareWithDiags(CREATE_VERSION_TABLE, .{ .diags = &diags }) catch |err| {
-        std.log.err("got error {}: {s}", .{ err, diags });
-        return err;
-    };
+    var stmt = try db.prepare(CREATE_VERSION_TABLE);
     defer stmt.deinit();
 
+    var diags = sqlite.Diagnostics{};
     stmt.exec(.{ .diags = &diags }, .{}) catch |err| {
         std.log.err("got error {}: {s}", .{ err, diags });
         return err;
     };
 }
 
-pub fn run(db: *sqlite.Db) !bool {
-    var diags = sqlite.Diagnostics{};
+pub fn run(db: *Db) !bool {
     var version = b: {
-        var version_query = db.prepareWithDiags(VERSION_QUERY, .{ .diags = &diags }) catch |err| {
-            if (std.mem.startsWith(u8, "no such table", diags.message)) {
-                try createVersionTable(db);
-                break :b 0;
-            }
-
-            std.log.err("got error {}: {s}", .{ err, diags });
-            return err;
+        var version_query = db.prepare(VERSION_QUERY) catch {
+            try createVersionTable(db);
+            break :b 0;
         };
         defer version_query.deinit();
 
+        var diags = sqlite.Diagnostics{};
         const version = version_query.one(i64, .{ .diags = &diags }, .{}) catch |err| {
             std.log.err("got error {}: {s}", .{ err, diags });
             return err;
@@ -97,35 +90,31 @@ pub fn run(db: *sqlite.Db) !bool {
 
     var executed = false;
 
-    for (migrations) |migration| {
-        if (migration.to <= version) continue;
+    inline for (migrations) |migration| {
+        if (comptime migration.from >= version) {
+            std.log.debug("running migration '{s}' ({}->{})", .{ migration.description, migration.from, migration.to });
 
-        std.log.debug("running migration '{s}' ({}->{})", .{ migration.description, migration.from, migration.to });
+            executed = true;
 
-        executed = true;
+            inline for (migration.ups) |up| {
+                var query = try db.prepare(up);
+                defer query.deinit();
 
-        for (migration.ups) |up| {
-            var query = db.prepareDynamicWithDiags(up, .{ .diags = &diags }) catch |err| {
-                std.log.err("got error {}: {s}", .{ err, diags });
-                return err;
-            };
-            defer query.deinit();
-
-            query.exec(.{ .diags = &diags }, .{}) catch |err| {
-                std.log.err("got error {}: {s}", .{ err, diags });
-                return err;
-            };
+                var diags = sqlite.Diagnostics{};
+                query.exec(.{ .diags = &diags }, .{}) catch |err| {
+                    std.log.err("got error {}: {s}", .{ err, diags });
+                    return err;
+                };
+            }
         }
     }
 
     if (executed) {
-        inline for ([_][]const u8{DELETE_VERSION_STMT, UPDATE_VERSION_STMT}) |s| {
-            var stmt = db.prepareDynamicWithDiags(s, .{ .diags = &diags }) catch |err| {
-                std.log.err("got error {}: {s}", .{ err, diags });
-                return err;
-            };
+        inline for ([_][]const u8{ DELETE_VERSION_STMT, UPDATE_VERSION_STMT }) |s| {
+            var stmt = try db.prepare(s);
             defer stmt.deinit();
 
+            var diags = sqlite.Diagnostics{};
             stmt.exec(.{ .diags = &diags }, .{CURRENT_VERSION}) catch |err| {
                 std.log.err("got error {}: {s}", .{ err, diags });
                 return err;
