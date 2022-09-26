@@ -21,7 +21,7 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     defer tw.deinit();
     try tw.append("ID\tTitle\tPriority\tState\t");
 
-    var it = try query.iterator(struct { id: i64, title: []const u8, priority: i64, state: i64 }, .{});
+    var it = try query.stmt.iterator(struct { id: i64, title: []const u8, priority: i64, state: i64 }, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
         const state = std.meta.tagName(@intToEnum(TodoState, todo.state));
         try tw.append(try std.fmt.allocPrint(

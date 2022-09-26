@@ -62,11 +62,7 @@ fn createVersionTable(db: *Db) !void {
     var stmt = try db.prepare(CREATE_VERSION_TABLE);
     defer stmt.deinit();
 
-    var diags = sqlite.Diagnostics{};
-    stmt.exec(.{ .diags = &diags }, .{}) catch |err| {
-        std.log.err("got error {}: {s}", .{ err, diags });
-        return err;
-    };
+    try stmt.exec(.{}, .{});
 }
 
 pub fn run(db: *Db) !bool {
@@ -77,12 +73,7 @@ pub fn run(db: *Db) !bool {
         };
         defer version_query.deinit();
 
-        var diags = sqlite.Diagnostics{};
-        const version = version_query.one(i64, .{ .diags = &diags }, .{}) catch |err| {
-            std.log.err("got error {}: {s}", .{ err, diags });
-            return err;
-        } orelse 0;
-
+        const version = (try version_query.one(i64, .{}, .{})) orelse 0;
         break :b version;
     };
 
@@ -100,11 +91,7 @@ pub fn run(db: *Db) !bool {
                 var query = try db.prepare(up);
                 defer query.deinit();
 
-                var diags = sqlite.Diagnostics{};
-                query.exec(.{ .diags = &diags }, .{}) catch |err| {
-                    std.log.err("got error {}: {s}", .{ err, diags });
-                    return err;
-                };
+                try query.exec(.{}, .{});
             }
         }
     }
@@ -114,11 +101,7 @@ pub fn run(db: *Db) !bool {
             var stmt = try db.prepare(s);
             defer stmt.deinit();
 
-            var diags = sqlite.Diagnostics{};
-            stmt.exec(.{ .diags = &diags }, .{CURRENT_VERSION}) catch |err| {
-                std.log.err("got error {}: {s}", .{ err, diags });
-                return err;
-            };
+            try stmt.exec(.{}, .{CURRENT_VERSION});
         }
     }
 
