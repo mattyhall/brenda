@@ -214,6 +214,22 @@ fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
     try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{title});
 }
 
+fn clockOut(gpa: std.mem.Allocator, db: *Db) !void {
+    const todo = (try clockedInTodo(gpa, db)) orelse {
+        std.debug.print("Not clocked in\n", .{});
+        return;
+    };
+
+    var stmt = try db.prepare("UPDATE periods SET end = strftime('%Y-%m-%dT%H:%M:%S') WHERE todo = ? AND end IS NULL;");
+    defer stmt.deinit();
+
+    try stmt.exec(.{}, .{todo.id});
+
+    var writer = std.io.getStdOut().writer();
+    try writer.print("Clocking out of ", .{});
+    try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{todo.title});
+}
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -277,6 +293,13 @@ pub fn main() anyerror!void {
             }
 
             try clockIn(allocator, args[3], &db);
+        } else if (std.mem.eql(u8, "out", std.mem.span(args[2]))) {
+            if (args.len != 3) {
+                std.debug.print("No arguments are needed to clock out", .{});
+                std.process.exit(1);
+            }
+
+            try clockOut(allocator, &db);
         }
     }
 }
