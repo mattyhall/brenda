@@ -67,7 +67,7 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
 
         const used = al_unformatted.items.len + todo.tags.len + 3;
         const title_space = if (used + todo.title.len > winsz.ws_col) todo.title.len else winsz.ws_col - used;
-        try (Style{ .foreground = Style.pink }).print(al.writer(), "{s:^[1]}", .{todo.title, title_space});
+        try (Style{ .foreground = Style.pink }).print(al.writer(), "{s:^[1]}", .{ todo.title, title_space });
 
         if (todo.tags.len != 0) {
             try (Style{ .faint = true }).print(al.writer(), " :{s}:", .{todo.tags});
@@ -178,6 +178,42 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     if (tags) |tags_s| try addTagsToTodo(db, todo.id, tags_s);
 }
 
+fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?Todo {
+    var stmt = try db.prepare(
+        \\SELECT a.id, a.title, a.priority, a.state, "" as tags
+        \\FROM todos a
+        \\LEFT JOIN periods b ON b.todo = a.id
+        \\WHERE b.end IS NULL
+        \\LIMIT 1
+    );
+    defer stmt.deinit();
+
+    return try stmt.oneAlloc(Todo, allocator, .{}, .{});
+}
+
+fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
+    var tid = std.fmt.parseInt(i64, arg, 10) catch return error.CouldNotParseField;
+    var stmt = try db.prepare("SELECT title FROM todos WHERE id=? LIMIT 1");
+    defer stmt.deinit();
+    var title = (try stmt.oneAlloc([]const u8, gpa, .{}, .{tid})) orelse return error.NotFound;
+
+    if (try clockedInTodo(gpa, db)) |todo| {
+        std.debug.print("Already clocked in to ", .{});
+        try (Style{ .foreground = Style.pink }).print(std.io.getStdErr().writer(), "{s}", .{todo.title});
+        std.debug.print(", clock out first\n", .{});
+        return;
+    }
+
+    var insert_stmt = try db.prepare("INSERT INTO periods(todo, start) VALUES (?, strftime('%Y-%m-%dT%H:%M:%S'))");
+    defer insert_stmt.deinit();
+
+    try insert_stmt.exec(.{}, .{tid});
+
+    var writer = std.io.getStdOut().writer();
+    try writer.print("Clocking in to ", .{});
+    try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{title});
+}
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -210,7 +246,10 @@ pub fn main() anyerror!void {
 
             const rest = args[3..];
             newTodo(allocator, rest, &db) catch |err| switch (err) {
-                error.CouldNotParseField => {},
+                error.CouldNotParseField => {
+                    std.debug.print("Could not parse field\n", .{});
+                    std.process.exit(1);
+                },
                 else => return err,
             };
         } else if (std.mem.eql(u8, "edit", std.mem.span(args[2]))) {
@@ -224,6 +263,20 @@ pub fn main() anyerror!void {
                 error.CouldNotParseField => {},
                 else => return err,
             };
+        }
+    } else if (std.mem.eql(u8, "clock", std.mem.span(args[1]))) {
+        if (args.len < 3) {
+            std.debug.print("Please choose either 'in' or 'out'\n", .{});
+            std.process.exit(1);
+        }
+
+        if (std.mem.eql(u8, "in", std.mem.span(args[2]))) {
+            if (args.len != 4) {
+                std.debug.print("Please pass a todo id\n", .{});
+                std.process.exit(1);
+            }
+
+            try clockIn(allocator, args[3], &db);
         }
     }
 }

@@ -50,7 +50,7 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
             \\ CREATE TABLE periods (
             \\   todo  INTEGER NOT NULL,
             \\   start TEXT    NOT NULL,
-            \\   end   TEXT    NOT NULL
+            \\   end   TEXT
             \\ );
         },
     },
