@@ -7,7 +7,7 @@ const Style = @import("Style.zig");
 pub const TodoState = enum {
     in_progress,
     in_review,
-    new,
+    todo,
     blocked,
     done,
     cancelled,
@@ -124,7 +124,7 @@ fn addTagsToTodo(db: *Db, id: i64, tags: []const u8) !void {
 fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     var name = args[0];
     var priority: i64 = 3;
-    var state: []const u8 = "new";
+    var state: []const u8 = "todo";
     var tags: ?[]const u8 = null;
 
     if (args.len > 1) {
