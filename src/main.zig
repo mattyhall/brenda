@@ -3,33 +3,8 @@ const sqlite = @import("sqlite");
 const migrations = @import("migrations.zig");
 const Db = @import("Db.zig");
 const Style = @import("Style.zig");
-
-pub const TodoState = enum {
-    in_progress,
-    in_review,
-    todo,
-    blocked,
-    done,
-    cancelled,
-
-    pub const BaseType = i64;
-
-    pub fn bindField(self: TodoState, _: std.mem.Allocator) !BaseType {
-        return @enumToInt(self);
-    }
-
-    pub fn readField(_: std.mem.Allocator, value: BaseType) !TodoState {
-        return std.meta.intToEnum(TodoState, value);
-    }
-};
-
-pub const Todo = struct {
-    id: i64,
-    title: []const u8,
-    priority: i64,
-    state: TodoState,
-    tags: []const u8,
-};
+const Ui = @import("Ui.zig");
+const shared = @import("shared.zig");
 
 fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     const q =
@@ -45,35 +20,14 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
 
     var al = std.ArrayList(u8).init(allocator);
     defer al.deinit();
-    var al_unformatted = std.ArrayList(u8).init(allocator);
-    defer al_unformatted.deinit();
 
     var winsz = std.mem.zeroes(std.os.system.winsize);
     _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, std.os.system.T.IOCGWINSZ, @ptrToInt(&winsz));
     std.log.debug("winsz: {}", .{winsz});
 
-    var it = try query.stmt.iterator(Todo, .{});
+    var it = try query.stmt.iterator(shared.Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
-        try (Style{ .bold = true }).print(al.writer(), "{} ", .{todo.id});
-        try al_unformatted.writer().print("{} ", .{todo.id});
-
-        var state = try std.ascii.allocUpperString(allocator, std.meta.tagName(todo.state));
-        defer allocator.free(state);
-        try (Style{ .foreground = Style.green }).print(al.writer(), "{s} ", .{state});
-        try al_unformatted.writer().print("{s} ", .{state});
-
-        try (Style{}).print(al.writer(), "[P-{d}] ", .{todo.priority});
-        try al_unformatted.writer().print("[P-{d}] ", .{todo.priority});
-
-        const used = al_unformatted.items.len + todo.tags.len + 3;
-        const title_space = if (used + todo.title.len > winsz.ws_col) todo.title.len else winsz.ws_col - used;
-        try (Style{ .foreground = Style.pink }).print(al.writer(), "{s:^[1]}", .{ todo.title, title_space });
-
-        if (todo.tags.len != 0) {
-            try (Style{ .faint = true }).print(al.writer(), " :{s}:", .{todo.tags});
-        } else {
-            try al.append('\n');
-        }
+        try todo.write(allocator, al.writer(), winsz.ws_col);
     }
 
     if (al.items.len == 0) return;
@@ -140,7 +94,7 @@ fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
         }
     }
 
-    const real_state = std.meta.stringToEnum(TodoState, state) orelse return error.CouldNotParseField;
+    const real_state = std.meta.stringToEnum(shared.TodoState, state) orelse return error.CouldNotParseField;
 
     var stmt = try db.prepare("INSERT INTO todos(title, priority, state) VALUES(?, ?, ?) RETURNING id");
     defer stmt.deinit();
@@ -153,7 +107,7 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     var tid = std.fmt.parseInt(i64, args[0], 10) catch return error.CouldNotParseField;
     var stmt = try db.prepare("SELECT id, title, priority, state FROM todos WHERE id=? LIMIT 1");
     defer stmt.deinit();
-    var todo = (try stmt.oneAlloc(struct { id: i64, title: []const u8, priority: i64, state: TodoState }, gpa, .{}, .{tid})) orelse return error.NotFound;
+    var todo = (try stmt.oneAlloc(struct { id: i64, title: []const u8, priority: i64, state: shared.TodoState }, gpa, .{}, .{tid})) orelse return error.NotFound;
 
     var tags: ?[]const u8 = null;
 
@@ -164,7 +118,7 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
         } else if (std.mem.eql(u8, "priority", a.key)) {
             todo.priority = std.fmt.parseInt(i64, a.value, 10) catch return error.CouldNotParseField;
         } else if (std.mem.eql(u8, "state", a.key)) {
-            todo.state = std.meta.stringToEnum(TodoState, a.value) orelse return error.CouldNotParseField;
+            todo.state = std.meta.stringToEnum(shared.TodoState, a.value) orelse return error.CouldNotParseField;
         } else if (std.mem.eql(u8, "tags", a.key)) {
             tags = a.value;
         }
@@ -178,7 +132,7 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     if (tags) |tags_s| try addTagsToTodo(db, todo.id, tags_s);
 }
 
-fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?Todo {
+fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?shared.Todo {
     var stmt = try db.prepare(
         \\SELECT a.id, a.title, a.priority, a.state, "" as tags
         \\FROM todos a
@@ -188,7 +142,7 @@ fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?Todo {
     );
     defer stmt.deinit();
 
-    return try stmt.oneAlloc(Todo, allocator, .{}, .{});
+    return try stmt.oneAlloc(shared.Todo, allocator, .{}, .{});
 }
 
 fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
@@ -245,8 +199,12 @@ pub fn main() anyerror!void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len == 1) {
-        std.debug.print("Please pass some arguments\n", .{});
-        std.process.exit(1);
+        var ui = try Ui.init(allocator, &db);
+        defer ui.deinit() catch {};
+
+        try ui.draw();
+        std.time.sleep(1_000_000_000);
+        return;
     }
 
     if (std.mem.eql(u8, "todo", std.mem.span(args[1]))) {
