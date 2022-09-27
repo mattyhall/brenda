@@ -199,6 +199,7 @@ fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
 
     if (try clockedInTodo(gpa, db)) |todo| {
         std.debug.print("Already clocked in to ", .{});
+        try (Style{ .bold = true }).print(std.io.getStdErr().writer(), "{} ", .{todo.id});
         try (Style{ .foreground = Style.pink }).print(std.io.getStdErr().writer(), "{s}", .{todo.title});
         std.debug.print(", clock out first\n", .{});
         return;
