@@ -202,8 +202,7 @@ pub fn main() anyerror!void {
         var ui = try Ui.init(allocator, &db);
         defer ui.deinit() catch {};
 
-        try ui.draw();
-        std.time.sleep(1_000_000_000);
+        try ui.run();
         return;
     }
 

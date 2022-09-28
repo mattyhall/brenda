@@ -56,6 +56,7 @@ pub const Todo = struct {
         var al = std.ArrayList(u8).init(allocator);
         defer al.deinit();
 
+        try (Style { .bold = true }).print(writer, "{} ", .{self.id});
         try (Style{ .foreground = Style.green }).print(writer, "{s} ", .{state});
         try (Style{}).print(writer, "[P-{d}] ", .{self.priority});
         try (Style{ .foreground = Style.pink }).print(writer, "{s:^[1]}", .{ self.title, title_space });

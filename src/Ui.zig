@@ -5,15 +5,30 @@ const shared = @import("shared.zig");
 gpa: std.mem.Allocator,
 stdout: std.fs.File,
 db: *Db,
+original_terminal_settings: std.os.termios,
 
 const Self = @This();
 
 pub fn init(gpa: std.mem.Allocator, db: *Db) !Self {
     var stdout = std.io.getStdOut();
-    try stdout.writeAll("\x1b[?47h"); // Save screen
-    try stdout.writeAll("\x1b[s"); // Save cursor pos
-    try stdout.writeAll("\x1b[?25l"); // Make cursor invisible
-    return Self{ .gpa = gpa, .stdout = stdout, .db = db };
+    var self = Self{ .gpa = gpa, .stdout = stdout, .db = db, .original_terminal_settings = undefined };
+    try self.setupTerminal();
+    return self;
+}
+
+fn setupTerminal(self: *Self) !void {
+    self.original_terminal_settings = try std.os.tcgetattr(std.os.STDIN_FILENO);
+
+    var raw = self.original_terminal_settings;
+    raw.iflag &= ~@intCast(c_uint, std.os.system.BRKINT | std.os.system.ICRNL | std.os.system.INPCK | std.os.system.ISTRIP | std.os.system.IXON);
+    raw.lflag &= ~@intCast(c_uint, std.os.system.ECHO | std.os.system.ICANON | std.os.system.IEXTEN | std.os.system.ISIG);
+    raw.cc[std.os.system.V.MIN] = 1;
+
+    try std.os.tcsetattr(std.os.STDIN_FILENO, std.os.TCSA.NOW, raw);
+
+    try self.stdout.writeAll("\x1b[?47h"); // Save screen
+    try self.stdout.writeAll("\x1b[s"); // Save cursor pos
+    try self.stdout.writeAll("\x1b[?25l"); // Make cursor invisible
 }
 
 pub fn draw(self: *const Self) !void {
@@ -44,7 +59,29 @@ pub fn draw(self: *const Self) !void {
     }
 }
 
+fn update(_: *Self) !bool {
+    var stdin = std.io.getStdIn();
+    var buf: [1]u8 = undefined;
+    _ = try stdin.read(&buf);
+
+    switch (buf[0]) {
+        'q' => return true,
+        else => {},
+    }
+
+    return false;
+}
+
+pub fn run(self: *Self) !void {
+    while (true) {
+        try self.draw();
+        if (try self.update()) return;
+    }
+}
+
 pub fn deinit(self: *const Self) !void {
+    try std.os.tcsetattr(std.os.STDIN_FILENO, std.os.TCSA.NOW, self.original_terminal_settings);
+
     try self.stdout.writeAll("\x1b[?47l"); // Restore screen
     try self.stdout.writeAll("\x1b[u"); // Restore cursor pos
     try self.stdout.writeAll("\x1b[?25h"); // Make cursor visible
