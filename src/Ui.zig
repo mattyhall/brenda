@@ -1,6 +1,7 @@
 const std = @import("std");
 const Db = @import("Db.zig");
 const shared = @import("shared.zig");
+const term = @import("terminal.zig");
 
 gpa: std.mem.Allocator,
 stdout: std.fs.File,
@@ -20,9 +21,9 @@ fn setupTerminal(self: *Self) !void {
     self.original_terminal_settings = try std.os.tcgetattr(std.os.STDIN_FILENO);
 
     var raw = self.original_terminal_settings;
-    raw.iflag &= ~@intCast(c_uint, std.os.system.BRKINT | std.os.system.ICRNL | std.os.system.INPCK | std.os.system.ISTRIP | std.os.system.IXON);
-    raw.lflag &= ~@intCast(c_uint, std.os.system.ECHO | std.os.system.ICANON | std.os.system.IEXTEN | std.os.system.ISIG);
-    raw.cc[std.os.system.V.MIN] = 1;
+    raw.iflag &= ~@intCast(c_uint, term.BRKINT | term.ICRNL | term.INPCK | term.ISTRIP | term.IXON);
+    raw.lflag &= ~@intCast(c_uint, term.ECHO | term.ICANON | term.IEXTEN | term.ISIG);
+    raw.cc[term.VMIN] = 1;
 
     try std.os.tcsetattr(std.os.STDIN_FILENO, std.os.TCSA.NOW, raw);
 
@@ -50,8 +51,8 @@ pub fn draw(self: *const Self) !void {
     var query = try self.db.prepare(q);
     defer query.deinit();
 
-    var winsz = std.mem.zeroes(std.os.system.winsize);
-    _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, std.os.system.T.IOCGWINSZ, @ptrToInt(&winsz));
+    var winsz = std.mem.zeroes(term.winsize);
+    _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
 
     var it = try query.stmt.iterator(shared.Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {

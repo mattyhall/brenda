@@ -19,7 +19,7 @@ pub fn build(b: *std.build.Builder) void {
 
     exe.linkLibrary(sqlite);
     exe.addPackagePath("sqlite", "third_party/zig-sqlite/sqlite.zig");
-    exe.addIncludeDir("third_party/zig-sqlite/c");
+    exe.addIncludePath("third_party/zig-sqlite/c");
 
     exe.setTarget(target);
     exe.setBuildMode(mode);
