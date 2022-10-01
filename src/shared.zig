@@ -28,6 +28,7 @@ pub const Todo = struct {
     priority: i64,
     state: TodoState,
     tags: []const u8,
+    timed: bool,
 
     const Self = @This();
 
@@ -42,6 +43,8 @@ pub const Todo = struct {
 
         if (self.title.len + al_unformatted.items.len > cols) return error.NotEnoughSpace;
 
+        // We're guessing here the emojis are two chars. I'm not sure how correct that is
+        if (self.timed) try al_unformatted.writer().writeAll("   ");
         try al_unformatted.writer().print("{s} ", .{state});
         try al_unformatted.writer().print("[P-{d}] ", .{self.priority});
 
@@ -56,7 +59,8 @@ pub const Todo = struct {
         var al = std.ArrayList(u8).init(allocator);
         defer al.deinit();
 
-        try (Style { .bold = true }).print(writer, "{} ", .{self.id});
+        try (Style{ .bold = true }).print(writer, "{} ", .{self.id});
+        if (self.timed) try writer.writeAll("⏰ ");
         try (Style{ .foreground = Style.green }).print(writer, "{s} ", .{state});
         try (Style{}).print(writer, "[P-{d}] ", .{self.priority});
         try (Style{ .foreground = Style.pink }).print(writer, "{s:^[1]}", .{ self.title, title_space });

@@ -41,10 +41,11 @@ pub fn draw(self: *const Self) !void {
     try self.stdout.writeAll("\x1b[H"); // Move cursor to home
 
     const q =
-        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val, ":") AS tags
+        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val, ":") AS tags, d.start is NOT NULL AS timed
         \\FROM todos a
         \\LEFT JOIN taggings b ON b.todo = a.id
         \\LEFT JOIN tags c ON c.id = b.tag
+        \\LEFT JOIN periods d ON d.todo = a.id AND (d.start IS NOT NULL AND d.end IS NULL)
         \\GROUP BY a.id
         \\ORDER BY state ASC
     ;
