@@ -48,7 +48,9 @@ pub const Todo = struct {
         try al_unformatted.writer().print("{s} ", .{state});
         try al_unformatted.writer().print("[P-{d}] ", .{self.priority});
 
-        const used = al_unformatted.items.len + self.tags.len + 3;
+        // For the space and the leading and trailing colon
+        const tag_extra_length: usize = if (self.tags.len != 0) 3 else 0;
+        const used = al_unformatted.items.len + self.tags.len + tag_extra_length;
         if (used + self.title.len > cols) {
             try (Style{ .foreground = Style.pink }).print(writer, "{s}", .{self.title});
             return;
