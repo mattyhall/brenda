@@ -61,13 +61,14 @@ pub fn draw(self: *const Self) !void {
     }
 }
 
-fn update(_: *Self) !bool {
+fn update(self: *Self) !bool {
     var stdin = std.io.getStdIn();
     var buf: [1]u8 = undefined;
     _ = try stdin.read(&buf);
 
     switch (buf[0]) {
         'q' => return true,
+        'o' => try shared.clockOut(self.gpa, self.db, false),
         else => {},
     }
 

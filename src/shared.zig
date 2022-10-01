@@ -74,3 +74,35 @@ pub const Todo = struct {
         }
     }
 };
+
+pub fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?Todo {
+    var stmt = try db.prepare(
+        \\SELECT a.id, a.title, a.priority, a.state, "" AS tags, 1 AS timed
+        \\FROM todos a
+        \\JOIN periods b ON b.todo = a.id
+        \\WHERE b.end IS NULL
+        \\LIMIT 1
+    );
+    defer stmt.deinit();
+
+    return try stmt.oneAlloc(Todo, allocator, .{}, .{});
+}
+
+pub fn clockOut(allocator: std.mem.Allocator, db: *Db, print: bool) !void {
+    var writer = std.io.getStdOut().writer();
+
+    const todo = (try clockedInTodo(allocator, db)) orelse {
+        if (print) try writer.writeAll("Not clocked in\n");
+        return;
+    };
+
+    var stmt = try db.prepare("UPDATE periods SET end = strftime('%Y-%m-%dT%H:%M:%S') WHERE todo = ? AND end IS NULL;");
+    defer stmt.deinit();
+
+    try stmt.exec(.{}, .{todo.id});
+
+    if (!print) return;
+
+    try writer.print("Clocking out of ", .{});
+    try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{todo.title});
+}

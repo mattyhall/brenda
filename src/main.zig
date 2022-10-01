@@ -127,26 +127,13 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
     if (tags) |tags_s| try addTagsToTodo(db, todo.id, tags_s);
 }
 
-fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?shared.Todo {
-    var stmt = try db.prepare(
-        \\SELECT a.id, a.title, a.priority, a.state, "" as tags
-        \\FROM todos a
-        \\JOIN periods b ON b.todo = a.id
-        \\WHERE b.end IS NULL
-        \\LIMIT 1
-    );
-    defer stmt.deinit();
-
-    return try stmt.oneAlloc(shared.Todo, allocator, .{}, .{});
-}
-
 fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
     var tid = std.fmt.parseInt(i64, arg, 10) catch return error.CouldNotParseField;
     var stmt = try db.prepare("SELECT title FROM todos WHERE id=? LIMIT 1");
     defer stmt.deinit();
     var title = (try stmt.oneAlloc([]const u8, gpa, .{}, .{tid})) orelse return error.NotFound;
 
-    if (try clockedInTodo(gpa, db)) |todo| {
+    if (try shared.clockedInTodo(gpa, db)) |todo| {
         std.debug.print("Already clocked in to ", .{});
         try (Style{ .bold = true }).print(std.io.getStdErr().writer(), "{} ", .{todo.id});
         try (Style{ .foreground = Style.pink }).print(std.io.getStdErr().writer(), "{s}", .{todo.title});
@@ -165,7 +152,7 @@ fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
 }
 
 fn clockOut(gpa: std.mem.Allocator, db: *Db) !void {
-    const todo = (try clockedInTodo(gpa, db)) orelse {
+    const todo = (try shared.clockedInTodo(gpa, db)) orelse {
         std.debug.print("Not clocked in\n", .{});
         return;
     };
@@ -252,7 +239,7 @@ pub fn main() anyerror!void {
                 std.process.exit(1);
             }
 
-            try clockOut(allocator, &db);
+            try shared.clockOut(allocator, &db, true);
         }
     }
 }
