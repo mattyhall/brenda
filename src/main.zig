@@ -127,7 +127,7 @@ fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?shared.Todo {
     var stmt = try db.prepare(
         \\SELECT a.id, a.title, a.priority, a.state, "" as tags
         \\FROM todos a
-        \\LEFT JOIN periods b ON b.todo = a.id
+        \\JOIN periods b ON b.todo = a.id
         \\WHERE b.end IS NULL
         \\LIMIT 1
     );
