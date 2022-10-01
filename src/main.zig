@@ -5,6 +5,7 @@ const Db = @import("Db.zig");
 const Style = @import("Style.zig");
 const Ui = @import("Ui.zig");
 const shared = @import("shared.zig");
+const term = @import("terminal.zig");
 
 fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     const q =
@@ -18,13 +19,15 @@ fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
     var query = try db.prepare(q);
     defer query.deinit();
 
-    var al = std.ArrayList(u8).init(allocator);
-    defer al.deinit();
-
-    if (al.items.len == 0) return;
-
     var stdout = std.io.getStdOut();
-    try stdout.writer().writeAll(al.items);
+
+    var winsz = std.mem.zeroes(term.winsize);
+    _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
+
+    var it = try query.stmt.iterator(shared.Todo, .{});
+    while (try it.nextAlloc(allocator, .{})) |todo| {
+        try todo.write(allocator, stdout.writer(), winsz.ws_col);
+    }
 }
 
 const Arg = struct {
