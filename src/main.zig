@@ -167,6 +167,89 @@ fn clockOut(gpa: std.mem.Allocator, db: *Db) !void {
     try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{todo.title});
 }
 
+fn printDuration(writer: anytype, diff: f32) !void {
+    if (diff == 0) {
+        try writer.writeAll("none");
+        return;
+    }
+
+    var h = false;
+
+    var d = diff;
+    if (d >= 60 * 60) {
+        const hrs = d / (60 * 60);
+        try writer.print("{} hrs ", .{@floatToInt(i64, hrs)});
+        d -= 60 * 60 * hrs;
+        h = true;
+    }
+
+    if (d >= 60) {
+        const mins = d / 60;
+        if (h) try writer.writeAll(" ");
+        try writer.print("{} mins", .{@floatToInt(i64, mins)});
+        return;
+    } else if (h) return;
+
+    try writer.print("{} secs", .{@floatToInt(i64, d)});
+}
+
+fn report(gpa: std.mem.Allocator, db: *Db) !void {
+    const todos_q =
+        \\SELECT t.id, t.title, 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
+        \\FROM todos t
+        \\LEFT JOIN periods p ON p.todo = t.id
+        \\WHERE p.start IS NULL OR p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
+        \\GROUP BY t.id
+        \\ORDER BY diff DESC
+    ;
+    var todos_stmt = try db.prepare(todos_q);
+    defer todos_stmt.deinit();
+
+    var writer = std.io.getStdOut().writer();
+
+    try (Style { .bold = true, .foreground = Style.blue }).print(writer, "Todos\n", .{});
+
+    var total: f32 = 0;
+    {
+        var it = try todos_stmt.stmt.iterator(struct { id: i64, title: []const u8, diff: f32 }, .{});
+        while (try it.nextAlloc(gpa, .{})) |todo| {
+            total += todo.diff;
+            try (Style{ .bold = true }).print(writer, "{} ", .{todo.id});
+            try (Style{ .foreground = Style.pink }).print(writer, "{s} ", .{todo.title});
+            try printDuration(writer, todo.diff);
+            try writer.writeAll("\n");
+        }
+    }
+
+    const tags_q =
+        \\SELECT g.val, 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
+        \\FROM periods p
+        \\JOIN todos t ON t.id = p.todo 
+        \\LEFT JOIN taggings i ON i.todo = t.id
+        \\LEFT JOIN tags g ON g.id = i.tag
+        \\WHERE p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
+        \\GROUP BY g.val
+        \\ORDER BY diff DESC
+    ;
+    var tags_stmt = try db.prepare(tags_q);
+    defer tags_stmt.deinit();
+
+    try (Style { .bold = true, .foreground = Style.blue }).print(writer, "\nTags\n", .{});
+
+    {
+        var it = try tags_stmt.stmt.iterator(struct { val: []const u8, diff: f32 }, .{});
+        while (try it.nextAlloc(gpa, .{})) |tag| {
+            try (Style{ .faint = true }).print(writer, ":{s}: ", .{tag.val});
+            try printDuration(writer, tag.diff);
+            try writer.print(" {d:.1}%\n", .{ tag.diff / total * 100 });
+        }
+    }
+
+    try (Style { .bold = true, .foreground = Style.blue }).print(writer, "\nTotal\n", .{});
+    try printDuration(writer, total);
+    try writer.writeAll("logged this week\n");
+}
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -241,5 +324,7 @@ pub fn main() anyerror!void {
 
             try shared.clockOut(allocator, &db, true);
         }
+    } else if (std.mem.eql(u8, "report", std.mem.span(args[1]))) {
+        try report(allocator, &db);
     }
 }
