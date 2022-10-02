@@ -194,6 +194,20 @@ fn printDuration(writer: anytype, diff: f32) !void {
 }
 
 fn report(gpa: std.mem.Allocator, db: *Db) !void {
+    var total_stmt = try db.prepare(
+        \\SELECT 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
+        \\FROM periods p
+        \\WHERE p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
+    );
+    defer total_stmt.deinit();
+
+    var writer = std.io.getStdOut().writer();
+
+    const total = (try total_stmt.one(f32, .{}, .{})) orelse {
+        try writer.writeAll("Nothing logged this week\n");
+        return;
+    };
+
     const todos_q =
         \\SELECT t.id, t.title, 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
         \\FROM todos t
@@ -205,19 +219,15 @@ fn report(gpa: std.mem.Allocator, db: *Db) !void {
     var todos_stmt = try db.prepare(todos_q);
     defer todos_stmt.deinit();
 
-    var writer = std.io.getStdOut().writer();
+    try (Style{ .bold = true, .foreground = Style.blue }).print(writer, "Todos\n", .{});
 
-    try (Style { .bold = true, .foreground = Style.blue }).print(writer, "Todos\n", .{});
-
-    var total: f32 = 0;
     {
         var it = try todos_stmt.stmt.iterator(struct { id: i64, title: []const u8, diff: f32 }, .{});
         while (try it.nextAlloc(gpa, .{})) |todo| {
-            total += todo.diff;
             try (Style{ .bold = true }).print(writer, "{} ", .{todo.id});
             try (Style{ .foreground = Style.pink }).print(writer, "{s} ", .{todo.title});
             try printDuration(writer, todo.diff);
-            try writer.writeAll("\n");
+            try writer.print(" {d:.1}%\n", .{todo.diff / total * 100});
         }
     }
 
@@ -234,18 +244,18 @@ fn report(gpa: std.mem.Allocator, db: *Db) !void {
     var tags_stmt = try db.prepare(tags_q);
     defer tags_stmt.deinit();
 
-    try (Style { .bold = true, .foreground = Style.blue }).print(writer, "\nTags\n", .{});
+    try (Style{ .bold = true, .foreground = Style.blue }).print(writer, "\nTags\n", .{});
 
     {
         var it = try tags_stmt.stmt.iterator(struct { val: []const u8, diff: f32 }, .{});
         while (try it.nextAlloc(gpa, .{})) |tag| {
             try (Style{ .faint = true }).print(writer, ":{s}: ", .{tag.val});
             try printDuration(writer, tag.diff);
-            try writer.print(" {d:.1}%\n", .{ tag.diff / total * 100 });
+            try writer.print(" {d:.1}%\n", .{tag.diff / total * 100});
         }
     }
 
-    try (Style { .bold = true, .foreground = Style.blue }).print(writer, "\nTotal\n", .{});
+    try (Style{ .bold = true, .foreground = Style.blue }).print(writer, "\nTotal\n", .{});
     try printDuration(writer, total);
     try writer.writeAll("logged this week\n");
 }
