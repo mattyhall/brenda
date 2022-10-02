@@ -7,7 +7,7 @@ diags: sqlite.Diagnostics,
 
 const Self = @This();
 
-fn StatementWrapper(comptime q: []const u8) type {
+pub fn StatementWrapper(comptime q: []const u8) type {
     const T = b: {
         @setEvalBranchQuota(100000);
         break :b sqlite.StatementType(.{}, q);
@@ -20,6 +20,8 @@ fn StatementWrapper(comptime q: []const u8) type {
         const Wrapper = @This();
 
         pub fn exec(self: *Wrapper, opts: sqlite.QueryOptions, values: anytype) !void {
+            defer self.stmt.reset();
+
             var custom_opts = opts;
             custom_opts.diags = &self.diags;
             self.stmt.exec(custom_opts, values) catch |err| {
@@ -34,6 +36,8 @@ fn StatementWrapper(comptime q: []const u8) type {
             opts: sqlite.QueryOptions,
             values: anytype,
         ) !?Type {
+            defer self.stmt.reset();
+
             var custom_opts = opts;
             custom_opts.diags = &self.diags;
             return self.stmt.one(Type, custom_opts, values) catch |err| {
@@ -49,6 +53,8 @@ fn StatementWrapper(comptime q: []const u8) type {
             opts: sqlite.QueryOptions,
             values: anytype,
         ) !?Type {
+            defer self.stmt.reset();
+
             var custom_opts = opts;
             custom_opts.diags = &self.diags;
             return self.stmt.oneAlloc(Type, allocator, custom_opts, values) catch |err| {

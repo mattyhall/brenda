@@ -2,30 +2,19 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const migrations = @import("migrations.zig");
 const Db = @import("Db.zig");
+const Statements = @import("Statements.zig");
 const Style = @import("Style.zig");
 const Ui = @import("Ui.zig");
 const shared = @import("shared.zig");
 const term = @import("terminal.zig");
 
-fn listTodos(allocator: std.mem.Allocator, db: *Db) !void {
-    const q =
-        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val, ":") AS tags, d.start is NOT NULL AS timed
-        \\FROM todos a
-        \\LEFT JOIN taggings b ON b.todo = a.id
-        \\LEFT JOIN tags c ON c.id = b.tag
-        \\LEFT JOIN periods d ON d.todo = a.id AND (d.start IS NOT NULL AND d.end IS NULL)
-        \\GROUP BY a.id
-        \\ORDER BY state ASC
-    ;
-    var query = try db.prepare(q);
-    defer query.deinit();
-
+fn listTodos(allocator: std.mem.Allocator, stmts: *Statements) !void {
     var stdout = std.io.getStdOut();
 
     var winsz = std.mem.zeroes(term.winsize);
     _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
 
-    var it = try query.stmt.iterator(shared.Todo, .{});
+    var it = try stmts.list_todos.stmt.iterator(shared.Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
         try todo.write(allocator, stdout.writer(), winsz.ws_col);
     }
@@ -44,33 +33,19 @@ const Arg = struct {
     }
 };
 
-fn getTag(db: *Db, tag: []const u8) !?i64 {
-    var stmt = try db.prepare("SELECT id FROM tags WHERE val= ?");
-    defer stmt.deinit();
-
-    return try stmt.one(i64, .{}, .{tag});
-}
-
-fn addTagsToTodo(db: *Db, id: i64, tags: []const u8) !void {
-    var taggings_insert_stmt = try db.prepare("INSERT INTO taggings(tag, todo) VALUES (?, ?);");
-    defer taggings_insert_stmt.deinit();
-
+fn addTagsToTodo(stmts: *Statements, id: i64, tags: []const u8) !void {
     var tag_it = std.mem.split(u8, tags, ",");
     while (tag_it.next()) |tag| {
-        const tag_id = (try getTag(db, tag)) orelse b: {
-            var tag_insert_stmt = try db.prepare("INSERT INTO tags(val) VALUES (?) RETURNING id");
-            defer tag_insert_stmt.deinit();
-
-            const tag_id = (try tag_insert_stmt.one(i64, .{}, .{tag})) orelse return error.SqliteError;
+        const tag_id = (try stmts.get_tag.one(i64, .{}, .{tag})) orelse b: {
+            const tag_id = (try stmts.insert_tag.one(i64, .{}, .{tag})) orelse return error.SqliteError;
             break :b tag_id;
         };
 
-        try taggings_insert_stmt.exec(.{}, .{ tag_id, id });
-        taggings_insert_stmt.stmt.reset();
+        try stmts.insert_tagging.exec(.{}, .{ tag_id, id });
     }
 }
 
-fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
+fn newTodo(args: [][]const u8, stmts: *Statements) !void {
     var name = args[0];
     var priority: i64 = 3;
     var state: []const u8 = "todo";
@@ -91,18 +66,13 @@ fn newTodo(_: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
 
     const real_state = std.meta.stringToEnum(shared.TodoState, state) orelse return error.CouldNotParseField;
 
-    var stmt = try db.prepare("INSERT INTO todos(title, priority, state) VALUES(?, ?, ?) RETURNING id");
-    defer stmt.deinit();
-
-    const id = (try stmt.one(i64, .{}, .{ name, priority, @enumToInt(real_state) })) orelse return error.SqliteError;
-    if (tags) |tags_s| try addTagsToTodo(db, id, tags_s);
+    const id = (try stmts.insert_todo.one(i64, .{}, .{ name, priority, @enumToInt(real_state) })) orelse return error.SqliteError;
+    if (tags) |tags_s| try addTagsToTodo(stmts, id, tags_s);
 }
 
-fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
+fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, stmts: *Statements) !void {
     var tid = std.fmt.parseInt(i64, args[0], 10) catch return error.CouldNotParseField;
-    var stmt = try db.prepare("SELECT id, title, priority, state FROM todos WHERE id=? LIMIT 1");
-    defer stmt.deinit();
-    var todo = (try stmt.oneAlloc(struct { id: i64, title: []const u8, priority: i64, state: shared.TodoState }, gpa, .{}, .{tid})) orelse return error.NotFound;
+    var todo = (try stmts.get_todo.oneAlloc(shared.Todo, gpa, .{}, .{tid})) orelse return error.NotFound;
 
     var tags: ?[]const u8 = null;
 
@@ -119,19 +89,14 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, db: *Db) !void {
         }
     }
 
-    var update_stmt = try db.prepare("UPDATE todos SET title = $title, priority = $priority, state = $state WHERE id = $id ;");
-    defer update_stmt.deinit();
+    try stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
 
-    try update_stmt.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
-
-    if (tags) |tags_s| try addTagsToTodo(db, todo.id, tags_s);
+    if (tags) |tags_s| try addTagsToTodo(stmts, todo.id, tags_s);
 }
 
-fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
+fn clockIn(gpa: std.mem.Allocator, arg: []const u8, stmts: *Statements, db: *Db) !void {
     var tid = std.fmt.parseInt(i64, arg, 10) catch return error.CouldNotParseField;
-    var stmt = try db.prepare("SELECT title FROM todos WHERE id=? LIMIT 1");
-    defer stmt.deinit();
-    var title = (try stmt.oneAlloc([]const u8, gpa, .{}, .{tid})) orelse return error.NotFound;
+    var in_todo = (try stmts.get_todo.oneAlloc(shared.Todo, gpa, .{}, .{tid})) orelse return error.NotFound;
 
     if (try shared.clockedInTodo(gpa, db)) |todo| {
         std.debug.print("Already clocked in to ", .{});
@@ -141,26 +106,20 @@ fn clockIn(gpa: std.mem.Allocator, arg: []const u8, db: *Db) !void {
         return;
     }
 
-    var insert_stmt = try db.prepare("INSERT INTO periods(todo, start) VALUES (?, strftime('%Y-%m-%dT%H:%M:%S'))");
-    defer insert_stmt.deinit();
-
-    try insert_stmt.exec(.{}, .{tid});
+    try stmts.insert_period.exec(.{}, .{tid});
 
     var writer = std.io.getStdOut().writer();
     try writer.print("Clocking in to ", .{});
-    try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{title});
+    try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{in_todo.title});
 }
 
-fn clockOut(gpa: std.mem.Allocator, db: *Db) !void {
+fn clockOut(gpa: std.mem.Allocator, stmts: *Statements, db: *Db) !void {
     const todo = (try shared.clockedInTodo(gpa, db)) orelse {
         std.debug.print("Not clocked in\n", .{});
         return;
     };
 
-    var stmt = try db.prepare("UPDATE periods SET end = strftime('%Y-%m-%dT%H:%M:%S') WHERE todo = ? AND end IS NULL;");
-    defer stmt.deinit();
-
-    try stmt.exec(.{}, .{todo.id});
+    try stmts.clock_out.exec(.{}, .{todo.id});
 
     var writer = std.io.getStdOut().writer();
     try writer.print("Clocking out of ", .{});
@@ -193,36 +152,18 @@ fn printDuration(writer: anytype, diff: f32) !void {
     try writer.print("{} secs", .{@floatToInt(i64, d)});
 }
 
-fn report(gpa: std.mem.Allocator, db: *Db) !void {
-    var total_stmt = try db.prepare(
-        \\SELECT 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
-        \\FROM periods p
-        \\WHERE p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
-    );
-    defer total_stmt.deinit();
-
+fn report(gpa: std.mem.Allocator, stmts: *Statements) !void {
     var writer = std.io.getStdOut().writer();
 
-    const total = (try total_stmt.one(f32, .{}, .{})) orelse {
+    const total = (try stmts.total_time.one(f32, .{}, .{})) orelse {
         try writer.writeAll("Nothing logged this week\n");
         return;
     };
 
-    const todos_q =
-        \\SELECT t.id, t.title, 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
-        \\FROM todos t
-        \\LEFT JOIN periods p ON p.todo = t.id
-        \\WHERE p.start IS NULL OR p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
-        \\GROUP BY t.id
-        \\ORDER BY diff DESC
-    ;
-    var todos_stmt = try db.prepare(todos_q);
-    defer todos_stmt.deinit();
-
     try (Style{ .bold = true, .foreground = Style.blue }).print(writer, "Todos\n", .{});
 
     {
-        var it = try todos_stmt.stmt.iterator(struct { id: i64, title: []const u8, diff: f32 }, .{});
+        var it = try stmts.todo_time.stmt.iterator(struct { id: i64, title: []const u8, diff: f32 }, .{});
         while (try it.nextAlloc(gpa, .{})) |todo| {
             try (Style{ .bold = true }).print(writer, "{} ", .{todo.id});
             try (Style{ .foreground = Style.pink }).print(writer, "{s} ", .{todo.title});
@@ -231,23 +172,10 @@ fn report(gpa: std.mem.Allocator, db: *Db) !void {
         }
     }
 
-    const tags_q =
-        \\SELECT g.val, 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
-        \\FROM periods p
-        \\JOIN todos t ON t.id = p.todo 
-        \\LEFT JOIN taggings i ON i.todo = t.id
-        \\LEFT JOIN tags g ON g.id = i.tag
-        \\WHERE p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
-        \\GROUP BY g.val
-        \\ORDER BY diff DESC
-    ;
-    var tags_stmt = try db.prepare(tags_q);
-    defer tags_stmt.deinit();
-
     try (Style{ .bold = true, .foreground = Style.blue }).print(writer, "\nTags\n", .{});
 
     {
-        var it = try tags_stmt.stmt.iterator(struct { val: []const u8, diff: f32 }, .{});
+        var it = try stmts.tag_time.stmt.iterator(struct { val: []const u8, diff: f32 }, .{});
         while (try it.nextAlloc(gpa, .{})) |tag| {
             try (Style{ .faint = true }).print(writer, ":{s}: ", .{tag.val});
             try printDuration(writer, tag.diff);
@@ -270,6 +198,9 @@ pub fn main() anyerror!void {
 
     _ = try migrations.run(&db);
 
+    var stmts = try Statements.init(&db);
+    defer stmts.deinit();
+
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
@@ -283,7 +214,7 @@ pub fn main() anyerror!void {
 
     if (std.mem.eql(u8, "todo", std.mem.span(args[1]))) {
         if (args.len < 3) {
-            try listTodos(allocator, &db);
+            try listTodos(allocator, &stmts);
             return;
         }
 
@@ -294,7 +225,7 @@ pub fn main() anyerror!void {
             }
 
             const rest = args[3..];
-            newTodo(allocator, rest, &db) catch |err| switch (err) {
+            newTodo(rest, &stmts) catch |err| switch (err) {
                 error.CouldNotParseField => {
                     std.debug.print("Could not parse field\n", .{});
                     std.process.exit(1);
@@ -308,7 +239,7 @@ pub fn main() anyerror!void {
             }
 
             const rest = args[3..];
-            editTodo(allocator, rest, &db) catch |err| switch (err) {
+            editTodo(allocator, rest, &stmts) catch |err| switch (err) {
                 error.CouldNotParseField => {},
                 else => return err,
             };
@@ -325,7 +256,7 @@ pub fn main() anyerror!void {
                 std.process.exit(1);
             }
 
-            try clockIn(allocator, args[3], &db);
+            try clockIn(allocator, args[3], &stmts, &db);
         } else if (std.mem.eql(u8, "out", std.mem.span(args[2]))) {
             if (args.len != 3) {
                 std.debug.print("No arguments are needed to clock out", .{});
@@ -335,6 +266,6 @@ pub fn main() anyerror!void {
             try shared.clockOut(allocator, &db, true);
         }
     } else if (std.mem.eql(u8, "report", std.mem.span(args[1]))) {
-        try report(allocator, &db);
+        try report(allocator, &stmts);
     }
 }
