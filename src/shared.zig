@@ -5,6 +5,7 @@ const Style = @import("Style.zig");
 const Statements = @import("Statements.zig");
 
 const dead_style = Style{ .foreground = Style.grey, .faint = true };
+const selected_dead_style = Style{ .foreground = Style.white, .background = Style.grey, .faint = true };
 
 pub const TodoState = enum {
     in_progress,
@@ -38,8 +39,8 @@ pub const TodoState = enum {
             .in_review => .{ .foreground = Style.pink, .background = bg },
             .todo => .{ .foreground = Style.green, .background = bg },
             .blocked => .{ .foreground = Style.red, .background = bg },
-            .done => dead_style,
-            .cancelled => dead_style,
+            .done => if (selected) selected_dead_style else dead_style,
+            .cancelled => if (selected) selected_dead_style else dead_style,
         };
     }
 };
@@ -58,26 +59,30 @@ pub const Todo = struct {
         return if (selected) Style.grey else Style.black;
     }
 
+    fn style_if_dead(_: *const Self, selected: bool) Style {
+        return if (selected) selected_dead_style else dead_style;
+    }
+
     pub fn title_style(self: *const Self, selected: bool) Style {
-        if (self.state.dead()) return dead_style;
+        if (self.state.dead()) return self.style_if_dead(selected);
 
         return .{ .foreground = Style.pink, .background = self.background(selected) };
     }
 
     pub fn id_style(self: *const Self, selected: bool) Style {
-        if (self.state.dead()) return dead_style;
+        if (self.state.dead()) return self.style_if_dead(selected);
 
-        return .{ .bold = true, .background= self.background(selected)  };
+        return .{ .bold = true, .background = self.background(selected) };
     }
 
     pub fn priority_style(self: *const Self, selected: bool) Style {
-        if (self.state.dead()) return dead_style;
+        if (self.state.dead()) return self.style_if_dead(selected);
 
-        return .{.background = self.background(selected)};
+        return .{ .background = self.background(selected) };
     }
 
     pub fn tag_style(self: *const Self, selected: bool) Style {
-        if (self.state.dead()) return dead_style;
+        if (self.state.dead()) return self.style_if_dead(selected);
 
         return .{ .faint = true, .background = self.background(selected) };
     }
