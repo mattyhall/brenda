@@ -3,13 +3,15 @@ const Db = @import("Db.zig");
 const shared = @import("shared.zig");
 const term = @import("terminal.zig");
 const Statements = @import("Statements.zig");
+const Style = @import("Style.zig");
 
 gpa: std.mem.Allocator,
 stdout: std.fs.File,
-original_terminal_settings: std.os.termios = undefined,
-todos: []shared.Todo = &[0]shared.Todo{},
 stmts: *Statements,
 arena: std.heap.ArenaAllocator,
+selected: ?i64 = null,
+original_terminal_settings: std.os.termios = undefined,
+todos: []shared.Todo = &[0]shared.Todo{},
 
 const Self = @This();
 
@@ -43,8 +45,16 @@ pub fn draw(self: *Self) !void {
     var winsz = std.mem.zeroes(term.winsize);
     _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
 
+    var writer = self.stdout.writer();
+
     for (self.todos) |todo| {
-        try todo.write(self.arena.allocator(), self.stdout.writer(), winsz.ws_col);
+        const is_selected = if (self.selected) |s| todo.id == s else false;
+        const selected_bg_style = Style{ .background = Style.grey };
+        if (is_selected) try selected_bg_style.start(writer);
+
+        try todo.write(self.arena.allocator(), writer, winsz.ws_col, is_selected);
+
+        if (is_selected) try selected_bg_style.end(writer);
     }
 }
 
@@ -52,6 +62,33 @@ fn fetch(self: *Self) !void {
     self.arena.deinit();
     self.arena = std.heap.ArenaAllocator.init(self.gpa);
     self.todos = try self.stmts.list_todos.all(shared.Todo, self.arena.allocator(), .{}, .{});
+
+    if (self.selected != null or self.todos.len == 0) return;
+    self.selected = self.todos[0].id;
+}
+
+fn selectedIndexInc(self: *Self, inc: enum { up, down }) void {
+    if (self.todos.len == 0) return;
+
+    const s = self.selected orelse return;
+
+    if (s == self.todos[0].id and inc == .up) {
+        self.selected = self.todos[self.todos.len - 1].id;
+        return;
+    } else if (s == self.todos[self.todos.len - 1].id and inc == .down) {
+        self.selected = self.todos[0].id;
+        return;
+    }
+
+    for (self.todos) |todo, i| {
+        if (todo.id == s) {
+            var index = if (inc == .down) i + 1 else i - 1;
+            self.selected = self.todos[index].id;
+            return;
+        }
+    }
+
+    unreachable;
 }
 
 fn update(self: *Self) !bool {
@@ -62,6 +99,8 @@ fn update(self: *Self) !bool {
     switch (buf[0]) {
         'q' => return true,
         'o' => try shared.clockOut(self.gpa, self.stmts, false),
+        'j' => self.selectedIndexInc(.down),
+        'k' => self.selectedIndexInc(.up),
         else => {},
     }
 

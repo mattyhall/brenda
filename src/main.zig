@@ -16,7 +16,7 @@ fn listTodos(allocator: std.mem.Allocator, stmts: *Statements) !void {
 
     var it = try stmts.list_todos.stmt.iterator(shared.Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
-        try todo.write(allocator, stdout.writer(), winsz.ws_col);
+        try todo.write(allocator, stdout.writer(), winsz.ws_col, false);
     }
 }
 

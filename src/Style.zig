@@ -6,6 +6,7 @@ italic: bool = false,
 
 const Self = @This();
 
+pub const black = Colour{ .r = 0, .g = 0, .b = 0 };
 pub const grey = Colour{ .r = 68, .g = 71, .b = 90 };
 pub const pink = Colour{ .r = 255, .g = 121, .b = 198 };
 pub const white = Colour{ .r = 255, .g = 255, .b = 255 };
@@ -27,7 +28,7 @@ fn colour(writer: anytype, c: Colour) !void {
     try writer.print("2;{};{};{}m", .{ c.r, c.g, c.b });
 }
 
-pub fn print(self: Self, writer: anytype, comptime format: []const u8, args: anytype) !void {
+pub fn start(self: Self, writer: anytype) !void {
     if (!self.foreground.eql(white)) {
         _ = try writer.write("\x1b[38;");
         try colour(writer, self.foreground);
@@ -43,8 +44,14 @@ pub fn print(self: Self, writer: anytype, comptime format: []const u8, args: any
         _ = try writer.write("\x1b[2m");
     if (self.italic)
         _ = try writer.write("\x1b[3m");
+}
 
-    try writer.print(format, args);
-
+pub fn end(_: Self, writer: anytype) !void {
     _ = try writer.write("\x1b[0m");
+}
+
+pub fn print(self: Self, writer: anytype, comptime format: []const u8, args: anytype) !void {
+    try self.start(writer);
+    try writer.print(format, args);
+    try self.end(writer);
 }

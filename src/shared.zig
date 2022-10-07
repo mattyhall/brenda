@@ -32,12 +32,12 @@ pub const TodoState = enum {
     }
 
     pub fn style(self: TodoState, selected: bool) Style {
-        _ = selected;
+        const bg = if (selected) Style.grey else Style.black;
         return switch (self) {
-            .in_progress => .{ .foreground = Style.blue },
-            .in_review => .{ .foreground = Style.pink },
-            .todo => .{ .foreground = Style.green },
-            .blocked => .{ .foreground = Style.red },
+            .in_progress => .{ .foreground = Style.blue, .background = bg },
+            .in_review => .{ .foreground = Style.pink, .background = bg },
+            .todo => .{ .foreground = Style.green, .background = bg },
+            .blocked => .{ .foreground = Style.red, .background = bg },
             .done => dead_style,
             .cancelled => dead_style,
         };
@@ -54,39 +54,35 @@ pub const Todo = struct {
 
     const Self = @This();
 
-    pub fn title_style(self: *const Self, selected: bool) Style {
-        _ = selected;
+    fn background(_: *const Self, selected: bool) Style.Colour {
+        return if (selected) Style.grey else Style.black;
+    }
 
+    pub fn title_style(self: *const Self, selected: bool) Style {
         if (self.state.dead()) return dead_style;
 
-        return .{ .foreground = Style.pink };
+        return .{ .foreground = Style.pink, .background = self.background(selected) };
     }
 
     pub fn id_style(self: *const Self, selected: bool) Style {
-        _ = selected;
-
         if (self.state.dead()) return dead_style;
 
-        return .{ .bold = true };
+        return .{ .bold = true, .background= self.background(selected)  };
     }
 
     pub fn priority_style(self: *const Self, selected: bool) Style {
-        _ = selected;
-
         if (self.state.dead()) return dead_style;
 
-        return .{};
+        return .{.background = self.background(selected)};
     }
 
     pub fn tag_style(self: *const Self, selected: bool) Style {
-        _ = selected;
-
         if (self.state.dead()) return dead_style;
 
-        return .{ .faint = true };
+        return .{ .faint = true, .background = self.background(selected) };
     }
 
-    pub fn write(self: *const Self, allocator: std.mem.Allocator, writer: anytype, cols: usize) !void {
+    pub fn write(self: *const Self, allocator: std.mem.Allocator, writer: anytype, cols: usize, selected: bool) !void {
         var state = try std.ascii.allocUpperString(allocator, std.meta.tagName(self.state));
         defer allocator.free(state);
 
@@ -115,14 +111,14 @@ pub const Todo = struct {
         var al = std.ArrayList(u8).init(allocator);
         defer al.deinit();
 
-        try (self.id_style(false)).print(writer, "{} ", .{self.id});
+        try (self.id_style(selected)).print(writer, "{} ", .{self.id});
         if (self.timed) try writer.writeAll("⏰ ");
-        try (self.state.style(false)).print(writer, "{s} ", .{state});
-        try (self.priority_style(false)).print(writer, "[P-{d}] ", .{self.priority});
-        try (self.title_style(false)).print(writer, "{s:^[1]}", .{ self.title, title_space });
+        try (self.state.style(selected)).print(writer, "{s} ", .{state});
+        try (self.priority_style(selected)).print(writer, "[P-{d}] ", .{self.priority});
+        try (self.title_style(selected)).print(writer, "{s:^[1]}", .{ self.title, title_space });
 
         if (self.tags.len != 0) {
-            try (self.tag_style(false)).print(writer, " :{s}:", .{self.tags});
+            try (self.tag_style(selected)).print(writer, " :{s}:", .{self.tags});
         } else {
             try al.append('\n');
         }
