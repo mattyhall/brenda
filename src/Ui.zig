@@ -6,14 +6,16 @@ const Statements = @import("Statements.zig");
 
 gpa: std.mem.Allocator,
 stdout: std.fs.File,
-original_terminal_settings: std.os.termios,
+original_terminal_settings: std.os.termios = undefined,
+todos: []shared.Todo = &[0]shared.Todo{},
 stmts: *Statements,
+arena: std.heap.ArenaAllocator,
 
 const Self = @This();
 
 pub fn init(gpa: std.mem.Allocator, stmts: *Statements) !Self {
     var stdout = std.io.getStdOut();
-    var self = Self{ .gpa = gpa, .stdout = stdout, .stmts = stmts, .original_terminal_settings = undefined };
+    var self = Self{ .gpa = gpa, .stdout = stdout, .stmts = stmts, .arena = std.heap.ArenaAllocator.init(gpa) };
     try self.setupTerminal();
     return self;
 }
@@ -33,11 +35,7 @@ fn setupTerminal(self: *Self) !void {
     try self.stdout.writeAll("\x1b[?25l"); // Make cursor invisible
 }
 
-pub fn draw(self: *const Self) !void {
-    var arena = std.heap.ArenaAllocator.init(self.gpa);
-    defer arena.deinit();
-    var allocator = arena.allocator();
-
+pub fn draw(self: *Self) !void {
     try self.stdout.writeAll("\x1b[2J"); // Erase entire screen
     try self.stdout.writeAll("\x1b[H"); // Move cursor to home
 
@@ -45,10 +43,15 @@ pub fn draw(self: *const Self) !void {
     var winsz = std.mem.zeroes(term.winsize);
     _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
 
-    var it = try self.stmts.list_todos.stmt.iterator(shared.Todo, .{});
-    while (try it.nextAlloc(allocator, .{})) |todo| {
-        try todo.write(allocator, self.stdout.writer(), winsz.ws_col);
+    for (self.todos) |todo| {
+        try todo.write(self.arena.allocator(), self.stdout.writer(), winsz.ws_col);
     }
+}
+
+fn fetch(self: *Self) !void {
+    self.arena.deinit();
+    self.arena = std.heap.ArenaAllocator.init(self.gpa);
+    self.todos = try self.stmts.list_todos.all(shared.Todo, self.arena.allocator(), .{}, .{});
 }
 
 fn update(self: *Self) !bool {
@@ -62,10 +65,14 @@ fn update(self: *Self) !bool {
         else => {},
     }
 
+    try self.fetch();
+
     return false;
 }
 
 pub fn run(self: *Self) !void {
+    try self.fetch();
+
     while (true) {
         try self.draw();
         if (try self.update()) return;
