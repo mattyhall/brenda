@@ -47,7 +47,7 @@ const TODO_TIME =
     \\FROM todos t
     \\LEFT JOIN periods p ON p.todo = t.id
     \\WHERE p.start IS NULL OR p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
-    \\GROUP BY t.id
+    \\GROUP BY t.id HAVING diff IS NOT NULL
     \\ORDER BY diff DESC
 ;
 const TAG_TIME =

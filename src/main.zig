@@ -137,7 +137,7 @@ fn printDuration(writer: anytype, diff: f32) !void {
     var d = diff;
     if (d >= 60 * 60) {
         const hrs = d / (60 * 60);
-        try writer.print("{} hrs ", .{@floatToInt(i64, hrs)});
+        try writer.print("{} hrs", .{@floatToInt(i64, hrs)});
         d -= 60 * 60 * hrs;
         h = true;
     }
@@ -185,7 +185,7 @@ fn report(gpa: std.mem.Allocator, stmts: *Statements) !void {
 
     try (Style{ .bold = true, .foreground = Style.blue }).print(writer, "\nTotal\n", .{});
     try printDuration(writer, total);
-    try writer.writeAll("logged this week\n");
+    try writer.writeAll(" logged this week\n");
 }
 
 pub fn main() anyerror!void {
