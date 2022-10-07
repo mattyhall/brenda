@@ -2,6 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const Db = @import("Db.zig");
 const Style = @import("Style.zig");
+const Statements = @import("Statements.zig");
 
 pub const TodoState = enum {
     in_progress,
@@ -75,31 +76,19 @@ pub const Todo = struct {
     }
 };
 
-pub fn clockedInTodo(allocator: std.mem.Allocator, db: *Db) !?Todo {
-    var stmt = try db.prepare(
-        \\SELECT a.id, a.title, a.priority, a.state, "" AS tags, 1 AS timed
-        \\FROM todos a
-        \\JOIN periods b ON b.todo = a.id
-        \\WHERE b.end IS NULL
-        \\LIMIT 1
-    );
-    defer stmt.deinit();
-
-    return try stmt.oneAlloc(Todo, allocator, .{}, .{});
+pub fn clockedInTodo(allocator: std.mem.Allocator, stmts: *Statements) !?Todo {
+    return try stmts.get_clocked_in_todo.oneAlloc(Todo, allocator, .{}, .{});
 }
 
-pub fn clockOut(allocator: std.mem.Allocator, db: *Db, print: bool) !void {
+pub fn clockOut(allocator: std.mem.Allocator, stmts: *Statements, print: bool) !void {
     var writer = std.io.getStdOut().writer();
 
-    const todo = (try clockedInTodo(allocator, db)) orelse {
+    const todo = (try clockedInTodo(allocator, stmts)) orelse {
         if (print) try writer.writeAll("Not clocked in\n");
         return;
     };
 
-    var stmt = try db.prepare("UPDATE periods SET end = strftime('%Y-%m-%dT%H:%M:%S') WHERE todo = ? AND end IS NULL;");
-    defer stmt.deinit();
-
-    try stmt.exec(.{}, .{todo.id});
+    try stmts.clock_out.exec(.{}, .{todo.id});
 
     if (!print) return;
 

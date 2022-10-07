@@ -94,11 +94,11 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, stmts: *Statements) !voi
     if (tags) |tags_s| try addTagsToTodo(stmts, todo.id, tags_s);
 }
 
-fn clockIn(gpa: std.mem.Allocator, arg: []const u8, stmts: *Statements, db: *Db) !void {
+fn clockIn(gpa: std.mem.Allocator, arg: []const u8, stmts: *Statements) !void {
     var tid = std.fmt.parseInt(i64, arg, 10) catch return error.CouldNotParseField;
     var in_todo = (try stmts.get_todo.oneAlloc(shared.Todo, gpa, .{}, .{tid})) orelse return error.NotFound;
 
-    if (try shared.clockedInTodo(gpa, db)) |todo| {
+    if (try shared.clockedInTodo(gpa, stmts)) |todo| {
         std.debug.print("Already clocked in to ", .{});
         try (Style{ .bold = true }).print(std.io.getStdErr().writer(), "{} ", .{todo.id});
         try (Style{ .foreground = Style.pink }).print(std.io.getStdErr().writer(), "{s}", .{todo.title});
@@ -113,8 +113,8 @@ fn clockIn(gpa: std.mem.Allocator, arg: []const u8, stmts: *Statements, db: *Db)
     try (Style{ .foreground = Style.pink }).print(writer, "{s}\n", .{in_todo.title});
 }
 
-fn clockOut(gpa: std.mem.Allocator, stmts: *Statements, db: *Db) !void {
-    const todo = (try shared.clockedInTodo(gpa, db)) orelse {
+fn clockOut(gpa: std.mem.Allocator, stmts: *Statements) !void {
+    const todo = (try shared.clockedInTodo(gpa, stmts)) orelse {
         std.debug.print("Not clocked in\n", .{});
         return;
     };
@@ -205,7 +205,7 @@ pub fn main() anyerror!void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len == 1) {
-        var ui = try Ui.init(allocator, &db);
+        var ui = try Ui.init(allocator, &stmts);
         defer ui.deinit() catch {};
 
         try ui.run();
@@ -256,14 +256,14 @@ pub fn main() anyerror!void {
                 std.process.exit(1);
             }
 
-            try clockIn(allocator, args[3], &stmts, &db);
+            try clockIn(allocator, args[3], &stmts);
         } else if (std.mem.eql(u8, "out", std.mem.span(args[2]))) {
             if (args.len != 3) {
                 std.debug.print("No arguments are needed to clock out", .{});
                 std.process.exit(1);
             }
 
-            try shared.clockOut(allocator, &db, true);
+            try shared.clockOut(allocator, &stmts, true);
         }
     } else if (std.mem.eql(u8, "report", std.mem.span(args[1]))) {
         try report(allocator, &stmts);

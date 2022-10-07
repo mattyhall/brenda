@@ -2,17 +2,18 @@ const std = @import("std");
 const Db = @import("Db.zig");
 const shared = @import("shared.zig");
 const term = @import("terminal.zig");
+const Statements = @import("Statements.zig");
 
 gpa: std.mem.Allocator,
 stdout: std.fs.File,
-db: *Db,
 original_terminal_settings: std.os.termios,
+stmts: *Statements,
 
 const Self = @This();
 
-pub fn init(gpa: std.mem.Allocator, db: *Db) !Self {
+pub fn init(gpa: std.mem.Allocator, stmts: *Statements) !Self {
     var stdout = std.io.getStdOut();
-    var self = Self{ .gpa = gpa, .stdout = stdout, .db = db, .original_terminal_settings = undefined };
+    var self = Self{ .gpa = gpa, .stdout = stdout, .stmts = stmts, .original_terminal_settings = undefined };
     try self.setupTerminal();
     return self;
 }
@@ -40,22 +41,11 @@ pub fn draw(self: *const Self) !void {
     try self.stdout.writeAll("\x1b[2J"); // Erase entire screen
     try self.stdout.writeAll("\x1b[H"); // Move cursor to home
 
-    const q =
-        \\SELECT a.id, title, priority, state, GROUP_CONCAT(c.val, ":") AS tags, d.start is NOT NULL AS timed
-        \\FROM todos a
-        \\LEFT JOIN taggings b ON b.todo = a.id
-        \\LEFT JOIN tags c ON c.id = b.tag
-        \\LEFT JOIN periods d ON d.todo = a.id AND (d.start IS NOT NULL AND d.end IS NULL)
-        \\GROUP BY a.id
-        \\ORDER BY state ASC
-    ;
-    var query = try self.db.prepare(q);
-    defer query.deinit();
 
     var winsz = std.mem.zeroes(term.winsize);
     _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
 
-    var it = try query.stmt.iterator(shared.Todo, .{});
+    var it = try self.stmts.list_todos.stmt.iterator(shared.Todo, .{});
     while (try it.nextAlloc(allocator, .{})) |todo| {
         try todo.write(allocator, self.stdout.writer(), winsz.ws_col);
     }
@@ -68,7 +58,7 @@ fn update(self: *Self) !bool {
 
     switch (buf[0]) {
         'q' => return true,
-        'o' => try shared.clockOut(self.gpa, self.db, false),
+        'o' => try shared.clockOut(self.gpa, self.stmts, false),
         else => {},
     }
 

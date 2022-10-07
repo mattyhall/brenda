@@ -21,6 +21,13 @@ const LIST_TODOS =
     \\GROUP BY a.id
     \\ORDER BY state ASC
 ;
+const GET_CLOCKED_IN_TODO =
+    \\SELECT a.id, a.title, a.priority, a.state, "" AS tags, 1 AS timed
+    \\FROM todos a
+    \\JOIN periods b ON b.todo = a.id
+    \\WHERE b.end IS NULL
+    \\LIMIT 1
+;
 
 const INSERT_TAG = "INSERT INTO tags(val) VALUES (?) RETURNING id";
 const GET_TAG = "SELECT id FROM tags WHERE val=?";
@@ -58,6 +65,7 @@ insert_todo: Db.StatementWrapper(INSERT_TODO),
 update_todo: Db.StatementWrapper(UPDATE_TODO),
 get_todo: Db.StatementWrapper(GET_TODO),
 list_todos: Db.StatementWrapper(LIST_TODOS),
+get_clocked_in_todo: Db.StatementWrapper(GET_CLOCKED_IN_TODO),
 
 insert_tag: Db.StatementWrapper(INSERT_TAG),
 get_tag: Db.StatementWrapper(GET_TAG),
@@ -79,6 +87,7 @@ pub fn init(db: *Db) !Self {
         .update_todo = try db.prepare(UPDATE_TODO),
         .get_todo = try db.prepare(GET_TODO),
         .list_todos = try db.prepare(LIST_TODOS),
+        .get_clocked_in_todo = try db.prepare(GET_CLOCKED_IN_TODO),
 
         .insert_tag = try db.prepare(INSERT_TAG),
         .get_tag = try db.prepare(GET_TAG),
@@ -99,6 +108,7 @@ pub fn deinit(self: *Self) void {
     self.update_todo.deinit();
     self.list_todos.deinit();
     self.get_todo.deinit();
+    self.get_clocked_in_todo.deinit();
 
     self.insert_tag.deinit();
     self.get_tag.deinit();
