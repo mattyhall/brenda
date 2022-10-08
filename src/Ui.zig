@@ -67,6 +67,15 @@ fn fetch(self: *Self) !void {
     self.selected = self.todos[0].id;
 }
 
+fn getSelected(self: *Self) ?*shared.Todo {
+    const s = self.selected orelse return null;
+    for (self.todos) |*todo| {
+        if (todo.id == s) return todo;
+    }
+
+    return null;
+}
+
 fn selectedIndexInc(self: *Self, inc: enum { up, down }) void {
     if (self.todos.len == 0) return;
 
@@ -91,6 +100,13 @@ fn selectedIndexInc(self: *Self, inc: enum { up, down }) void {
     unreachable;
 }
 
+fn changeSelectedState(self: *Self, state: shared.TodoState) !void {
+    var todo = self.getSelected() orelse return;
+    todo.state = state;
+    try self.stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
+}
+
+
 fn update(self: *Self) !bool {
     var stdin = std.io.getStdIn();
     var buf: [1]u8 = undefined;
@@ -101,6 +117,12 @@ fn update(self: *Self) !bool {
         'o' => try shared.clockOut(self.gpa, self.stmts, false),
         'j' => self.selectedIndexInc(.down),
         'k' => self.selectedIndexInc(.up),
+        'r' => try self.changeSelectedState(.in_review),
+        'p' => try self.changeSelectedState(.in_progress),
+        't' => try self.changeSelectedState(.todo),
+        'b' => try self.changeSelectedState(.blocked),
+        'd' => try self.changeSelectedState(.done),
+        'c' => try self.changeSelectedState(.cancelled),
         else => {},
     }
 
