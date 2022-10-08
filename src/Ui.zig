@@ -143,6 +143,12 @@ fn clockIn(self: *Self) !void {
     try self.stmts.insert_period.exec(.{}, .{selected});
 }
 
+fn changePriority(self: *Self, dir: i64) !void {
+    var todo = self.getSelected() orelse return;
+    todo.priority += dir;
+    try self.stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
+}
+
 fn update(self: *Self) !bool {
     var stdin = std.io.getStdIn();
     var buf: [1]u8 = undefined;
@@ -164,10 +170,10 @@ fn update(self: *Self) !bool {
         'i' => try self.clockIn(),
         'o' => try shared.clockOut(self.gpa, self.stmts, false),
 
-        else => {
-            std.log.debug("unrecognised input {d}", .{buf[0]});
-            return true;
-        },
+        '{' => try self.changePriority(1),
+        '}' => try self.changePriority(-1),
+
+        else => {},
     }
 
     try self.fetch();

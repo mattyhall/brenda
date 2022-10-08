@@ -19,7 +19,7 @@ const LIST_TODOS =
     \\LEFT JOIN tags c ON c.id = b.tag
     \\LEFT JOIN periods d ON d.todo = a.id AND (d.start IS NOT NULL AND d.end IS NULL)
     \\GROUP BY a.id
-    \\ORDER BY state ASC
+    \\ORDER BY state ASC, priority ASC
 ;
 const GET_CLOCKED_IN_TODO =
     \\SELECT a.id, a.title, a.priority, a.state, "" AS tags, 1 AS timed
