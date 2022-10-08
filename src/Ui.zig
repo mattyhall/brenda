@@ -65,8 +65,29 @@ fn fetch(self: *Self) !void {
     self.arena = std.heap.ArenaAllocator.init(self.gpa);
     self.todos = try self.stmts.list_todos.all(shared.Todo, self.arena.allocator(), .{}, .{});
 
-    if (self.selected != null or self.todos.len == 0) return;
-    self.selected = self.todos[0].id;
+    const selected = self.selected orelse {
+        self.selected = self.todos[0].id;
+        return;
+    };
+
+    const selected_index = b: {
+        for (self.todos) |t, i| {
+            if (t.id == selected) break :b i;
+        }
+
+        unreachable;
+    };
+
+    const ws = self.getWinsz();
+    if (selected_index < self.offset or selected_index > self.offset + ws.ws_row) {
+        if (selected_index < ws.ws_row/2) {
+            self.offset = 0;
+            return;
+        }
+
+        const offset = selected_index - ws.ws_row/2;
+        self.offset = std.math.min(offset, self.todos.len - ws.ws_row);
+    }
 }
 
 fn getSelected(self: *Self) ?*shared.Todo {
