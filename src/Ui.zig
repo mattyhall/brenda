@@ -10,6 +10,7 @@ stdout: std.fs.File,
 stmts: *Statements,
 arena: std.heap.ArenaAllocator,
 selected: ?i64 = null,
+offset: u64 = 0,
 original_terminal_settings: std.os.termios = undefined,
 todos: []shared.Todo = &[0]shared.Todo{},
 
@@ -37,17 +38,23 @@ fn setupTerminal(self: *Self) !void {
     try self.stdout.writeAll("\x1b[?25l"); // Make cursor invisible
 }
 
+fn getWinsz(_: *const Self) term.winsize {
+    var winsz = std.mem.zeroes(term.winsize);
+    _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
+    return winsz;
+}
+
 pub fn draw(self: *Self) !void {
     try self.stdout.writeAll("\x1b[2J"); // Erase entire screen
     try self.stdout.writeAll("\x1b[H"); // Move cursor to home
 
-
-    var winsz = std.mem.zeroes(term.winsize);
-    _ = std.os.system.ioctl(std.os.system.STDOUT_FILENO, term.TIOCGWINSZ, @ptrToInt(&winsz));
-
+    const winsz = self.getWinsz();
     var writer = self.stdout.writer();
 
-    for (self.todos) |todo| {
+    for (self.todos) |todo, i| {
+        if (i < self.offset) continue;
+        if (i - self.offset >= winsz.ws_row) break;
+
         const is_selected = if (self.selected) |s| todo.id == s else false;
         try todo.write(self.arena.allocator(), writer, winsz.ws_col, is_selected);
     }
@@ -75,12 +82,15 @@ fn selectedIndexInc(self: *Self, inc: enum { up, down }) void {
     if (self.todos.len == 0) return;
 
     const s = self.selected orelse return;
+    const winsz = self.getWinsz();
 
     if (s == self.todos[0].id and inc == .up) {
         self.selected = self.todos[self.todos.len - 1].id;
+        if (self.todos.len >= winsz.ws_row) self.offset = self.todos.len - winsz.ws_row;
         return;
     } else if (s == self.todos[self.todos.len - 1].id and inc == .down) {
         self.selected = self.todos[0].id;
+        self.offset = 0;
         return;
     }
 
@@ -88,6 +98,8 @@ fn selectedIndexInc(self: *Self, inc: enum { up, down }) void {
         if (todo.id == s) {
             var index = if (inc == .down) i + 1 else i - 1;
             self.selected = self.todos[index].id;
+            if (inc == .down and i - self.offset + 1 >= winsz.ws_row) self.offset += 1;
+            if (inc == .up and i <= self.offset) self.offset -= 1;
             return;
         }
     }
