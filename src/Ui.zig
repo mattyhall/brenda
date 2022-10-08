@@ -106,6 +106,14 @@ fn changeSelectedState(self: *Self, state: shared.TodoState) !void {
     try self.stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
 }
 
+fn clockIn(self: *Self) !void {
+    const selected = self.selected orelse return;
+    if (try shared.clockedInTodo(self.arena.allocator(), self.stmts)) |_| {
+        return;
+    }
+
+    try self.stmts.insert_period.exec(.{}, .{selected});
+}
 
 fn update(self: *Self) !bool {
     var stdin = std.io.getStdIn();
@@ -114,15 +122,19 @@ fn update(self: *Self) !bool {
 
     switch (buf[0]) {
         'q' => return true,
-        'o' => try shared.clockOut(self.gpa, self.stmts, false),
+
         'j' => self.selectedIndexInc(.down),
         'k' => self.selectedIndexInc(.up),
+
         'r' => try self.changeSelectedState(.in_review),
         'p' => try self.changeSelectedState(.in_progress),
         't' => try self.changeSelectedState(.todo),
         'b' => try self.changeSelectedState(.blocked),
         'd' => try self.changeSelectedState(.done),
         'c' => try self.changeSelectedState(.cancelled),
+
+        'i' => try self.clockIn(),
+        'o' => try shared.clockOut(self.gpa, self.stmts, false),
         else => {},
     }
 

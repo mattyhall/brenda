@@ -117,7 +117,7 @@ pub const Todo = struct {
         defer al.deinit();
 
         try (self.id_style(selected)).print(writer, "{} ", .{self.id});
-        if (self.timed) try writer.writeAll("⏰ ");
+        if (self.timed) try self.priority_style(selected).print(writer, "⏰ ", .{});
         try (self.state.style(selected)).print(writer, "{s} ", .{state});
         try (self.priority_style(selected)).print(writer, "[P-{d}] ", .{self.priority});
         try (self.title_style(selected)).print(writer, "{s:^[1]}", .{ self.title, title_space });
