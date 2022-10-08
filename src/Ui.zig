@@ -49,12 +49,7 @@ pub fn draw(self: *Self) !void {
 
     for (self.todos) |todo| {
         const is_selected = if (self.selected) |s| todo.id == s else false;
-        const selected_bg_style = Style{ .background = Style.grey };
-        if (is_selected) try selected_bg_style.start(writer);
-
         try todo.write(self.arena.allocator(), writer, winsz.ws_col, is_selected);
-
-        if (is_selected) try selected_bg_style.end(writer);
     }
 }
 
