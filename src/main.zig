@@ -8,6 +8,30 @@ const Ui = @import("Ui.zig");
 const shared = @import("shared.zig");
 const term = @import("terminal.zig");
 
+var log_file: std.fs.File = undefined;
+
+fn setupLogging(gpa: std.mem.Allocator) !void {
+    var arena = std.heap.ArenaAllocator.init(gpa);
+    defer arena.deinit();
+    var allocator = arena.allocator();
+
+    const data_dir = try Db.getDataDir(allocator);
+    const log_path = try std.fs.path.joinZ(allocator, &.{ data_dir, "log" });
+    log_file = try std.fs.cwd().createFile(log_path, .{});
+}
+
+pub fn log(
+    comptime level: std.log.Level,
+    comptime scope: @TypeOf(.EnumLiteral),
+    comptime format: []const u8,
+    args: anytype,
+) void {
+    const scopePrefix = "(" ++ @tagName(scope) ++ ")";
+    const prefix = "[" ++ level.asText() ++ "]";
+    log_file.writer().print(prefix ++ " " ++ scopePrefix ++ " " ++ format ++ "\n", args) catch unreachable;
+}
+
+
 fn listTodos(allocator: std.mem.Allocator, stmts: *Statements) !void {
     var stdout = std.io.getStdOut();
 
@@ -192,6 +216,8 @@ pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     var allocator = arena.allocator();
+
+    try setupLogging(allocator);
 
     var db = try Db.init(allocator);
     defer db.deinit();

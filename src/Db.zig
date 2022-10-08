@@ -86,21 +86,26 @@ pub fn StatementWrapper(comptime q: []const u8) type {
     };
 }
 
-fn getDataDir(gpa: std.mem.Allocator) ![:0]const u8 {
+pub fn getDataDir(gpa: std.mem.Allocator) ![]const u8 {
     if (std.os.getenv("BRENDA_PATH")) |path| return try std.fs.path.joinZ(gpa, &.{ path, "data.db" });
 
     const data_dir = try std.fs.getAppDataDir(gpa, "brenda");
-    defer gpa.free(data_dir);
+    errdefer gpa.free(data_dir);
     std.os.mkdir(data_dir, 0o774) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => return err,
     };
 
+    return data_dir;
+}
+
+fn getDatabasePath(gpa: std.mem.Allocator) ![:0]const u8 {
+    const data_dir = try getDataDir(gpa);
     return try std.fs.path.joinZ(gpa, &.{ data_dir, "data.db" });
 }
 
 pub fn init(gpa: std.mem.Allocator) !Self {
-    var db_path = try getDataDir(gpa);
+    var db_path = try getDatabasePath(gpa);
     defer gpa.free(db_path);
 
     return initWithOptions(gpa, .{

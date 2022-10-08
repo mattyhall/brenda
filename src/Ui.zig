@@ -163,7 +163,11 @@ fn update(self: *Self) !bool {
 
         'i' => try self.clockIn(),
         'o' => try shared.clockOut(self.gpa, self.stmts, false),
-        else => {},
+
+        else => {
+            std.log.debug("unrecognised input {d}", .{buf[0]});
+            return true;
+        },
     }
 
     try self.fetch();
