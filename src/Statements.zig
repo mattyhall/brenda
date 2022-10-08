@@ -40,13 +40,19 @@ const CLOCK_OUT = "UPDATE periods SET end = strftime('%Y-%m-%dT%H:%M:%S') WHERE 
 const TOTAL_TIME =
     \\SELECT 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
     \\FROM periods p
-    \\WHERE p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
+    \\WHERE
+    \\  p.start BETWEEN
+    \\    strftime('%Y-%m-%dT%H:%M:%S', datetime('now', 'weekday 1', '-7 days')) AND
+    \\    strftime('%Y-%m-%dT%H:%M:%S', datetime('now'))
 ;
 const TODO_TIME =
     \\SELECT t.id, t.title, 24*60*60*SUM(JULIANDAY(p.end) - JULIANDAY(p.start)) as diff
     \\FROM todos t
     \\LEFT JOIN periods p ON p.todo = t.id
-    \\WHERE p.start IS NULL OR p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
+    \\WHERE
+    \\  p.start BETWEEN
+    \\    strftime('%Y-%m-%dT%H:%M:%S', datetime('now', 'weekday 1', '-7 days')) AND
+    \\    strftime('%Y-%m-%dT%H:%M:%S', datetime('now'))
     \\GROUP BY t.id HAVING diff IS NOT NULL
     \\ORDER BY diff DESC
 ;
@@ -56,8 +62,11 @@ const TAG_TIME =
     \\JOIN todos t ON t.id = p.todo 
     \\LEFT JOIN taggings i ON i.todo = t.id
     \\LEFT JOIN tags g ON g.id = i.tag
-    \\WHERE p.start BETWEEN datetime('now', 'weekday 1', '-7 days') AND datetime('now')
-    \\GROUP BY g.val
+    \\WHERE
+    \\  p.start BETWEEN
+    \\    strftime('%Y-%m-%dT%H:%M:%S', datetime('now', 'weekday 1', '-7 days')) AND
+    \\    strftime('%Y-%m-%dT%H:%M:%S', datetime('now'))
+    \\GROUP BY g.val HAVING g.val IS NOT NULL
     \\ORDER BY diff DESC
 ;
 
