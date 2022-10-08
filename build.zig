@@ -12,7 +12,7 @@ pub fn build(b: *std.build.Builder) void {
     const mode = b.standardReleaseOptions();
 
     const sqlite = b.addStaticLibrary("sqlite", null);
-    sqlite.addCSourceFile("third_party/zig-sqlite/c/sqlite3.c", &[_][]const u8{"-std=c99"});
+    sqlite.addCSourceFile("third_party/zig-sqlite/c/sqlite3.c", &[_][]const u8{"-std=c99", "-DSQLITE_ENABLE_FTS5"});
     sqlite.linkLibC();
 
     const exe = b.addExecutable("brenda", "src/main.zig");

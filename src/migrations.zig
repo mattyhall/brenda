@@ -2,7 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const Db = @import("Db.zig");
 
-pub const CURRENT_VERSION = 1;
+pub const CURRENT_VERSION = 3;
 
 const CREATE_VERSION_TABLE =
     \\ CREATE TABLE _version(
@@ -27,31 +27,58 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
         .to = 1,
         .description = "initial tables (todos)",
         .ups = &.{
-            \\ CREATE TABLE todos (
-            \\   id       INTEGER PRIMARY KEY,
-            \\   title    TEXT              NOT NULL,
-            \\   priority INTEGER DEFAULT 3 NOT NULL,
-            \\   state    TEXT              NOT NULL
-            \\ );
+            \\CREATE TABLE todos (
+            \\  id       INTEGER PRIMARY KEY,
+            \\  title    TEXT              NOT NULL,
+            \\  priority INTEGER DEFAULT 3 NOT NULL,
+            \\  state    TEXT              NOT NULL
+            \\);
             ,
-            \\ CREATE TABLE tags (
-            \\   id  INTEGER PRIMARY KEY,
-            \\   val TEXT        NOT NULL
-            \\ );
+            \\CREATE TABLE tags (
+            \\  id  INTEGER PRIMARY KEY,
+            \\  val TEXT        NOT NULL
+            \\);
             ,
-            \\ CREATE TABLE taggings (
-            \\   tag  INTEGER NOT NULL,
-            \\   todo INTEGER,
+            \\CREATE TABLE taggings (
+            \\  tag  INTEGER NOT NULL,
+            \\  todo INTEGER,
             \\
-            \\   FOREIGN KEY(tag)  REFERENCES tags(id)
-            \\   FOREIGN KEY(todo) REFERENCES todos(id)
-            \\ );
+            \\  FOREIGN KEY(tag)  REFERENCES tags(id)
+            \\  FOREIGN KEY(todo) REFERENCES todos(id)
+            \\);
             ,
-            \\ CREATE TABLE periods (
-            \\   todo  INTEGER NOT NULL,
-            \\   start TEXT    NOT NULL,
-            \\   end   TEXT
-            \\ );
+            \\CREATE TABLE periods (
+            \\  todo  INTEGER NOT NULL,
+            \\  start TEXT    NOT NULL,
+            \\  end   TEXT
+            \\);
+        },
+    },
+    .{
+        .from = 1,
+        .to = 2,
+        .description = "journal entries",
+        .ups = &.{
+            \\CREATE TABLE journals (
+            \\  id      INTEGER PRIMARY KEY,
+            \\  todo    INTEGER,
+            \\  created TEXT    NOT NULL,
+            \\  entry   TEXT    NOT NULL,
+            \\
+            \\  FOREIGN KEY(todo) REFERENCES todos(id)
+            \\);
+        },
+    },
+    .{
+        .from = 2,
+        .to = 3,
+        .description = "fts5 for journal entries",
+        .ups = &.{
+            \\CREATE VIRTUAL TABLE journals_fts USING fts5(
+            \\  entry,
+            \\  content = 'journals',
+            \\  content_rowid = 'id',
+            \\);
         },
     },
 };
