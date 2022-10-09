@@ -149,6 +149,50 @@ fn changePriority(self: *Self, dir: i64) !void {
     try self.stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
 }
 
+fn createJournalEntry(self: *Self, linked_to_selected: bool) !void {
+    if (linked_to_selected and self.selected == null) return;
+
+    const tid = if (linked_to_selected) self.selected else null;
+
+    var allocator = self.arena.allocator();
+    const v = (try self.stmts.insert_journal_entry.oneAlloc(struct { id: i64, time: []const u8}, allocator, .{}, .{tid})) orelse return;
+
+    const tmpl =
+    \\# {s}
+    \\
+    \\
+    ;
+    const contents  = try std.fmt.allocPrint(allocator, tmpl, .{ v.time });
+
+    const data_dir = try Db.getDataDir(allocator);
+    const filename = try std.fmt.allocPrint(allocator, "tmp-journal-{}.md", .{v.id});
+    const tmp_file_path = try std.fs.path.join(allocator, &.{ data_dir, filename });
+
+    std.log.debug("opening {s}", .{tmp_file_path});
+
+    var f = try std.fs.createFileAbsolute(tmp_file_path, .{.read = true});
+    defer f.close();
+    defer std.fs.deleteFileAbsolute(tmp_file_path) catch {};
+    errdefer self.stmts.delete_journal_entry.exec(.{}, .{v.id}) catch {};
+
+    try f.writeAll(contents);
+
+    var proc = std.ChildProcess.init(&.{ "kak", tmp_file_path, "+2"}, allocator);
+    switch (try proc.spawnAndWait()) {
+        .Exited => |e| if (e == 0) b: {
+            try f.seekTo(0);
+            const new_contents = try f.readToEndAlloc(allocator, 2 * 1024 * 1024);
+            if (std.mem.eql(u8, new_contents, contents)) break :b;
+
+            try self.stmts.update_journal_entry.exec(.{}, .{new_contents, v.id});
+            return;
+        },
+        else => {},
+    }
+
+    try self.stmts.delete_journal_entry.exec(.{}, .{v.id});
+}
+
 fn update(self: *Self) !bool {
     var stdin = std.io.getStdIn();
     var buf: [1]u8 = undefined;
@@ -172,6 +216,9 @@ fn update(self: *Self) !bool {
 
         '{' => try self.changePriority(1),
         '}' => try self.changePriority(-1),
+
+        13 => try self.createJournalEntry(true),
+        'J' => try self.createJournalEntry(false),
 
         else => {},
     }

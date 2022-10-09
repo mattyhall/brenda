@@ -70,6 +70,14 @@ const TAG_TIME =
     \\ORDER BY diff DESC
 ;
 
+const INSERT_JOURNAL_ENTRY =
+    \\INSERT INTO journals (todo, created, entry)
+    \\VALUES (?, strftime('%Y-%m-%dT%H:%M:%S', datetime('now')), "")
+    \\RETURNING id, time(created)
+;
+const UPDATE_JOURNAL_ENTRY = "UPDATE journals SET entry = ? WHERE id = ?";
+const DELETE_JOURNAL_ENTRY = "DELETE FROM journals WHERE id = ?";
+
 insert_todo: Db.StatementWrapper(INSERT_TODO),
 update_todo: Db.StatementWrapper(UPDATE_TODO),
 get_todo: Db.StatementWrapper(GET_TODO),
@@ -87,6 +95,10 @@ clock_out: Db.StatementWrapper(CLOCK_OUT),
 total_time: Db.StatementWrapper(TOTAL_TIME),
 todo_time: Db.StatementWrapper(TODO_TIME),
 tag_time: Db.StatementWrapper(TAG_TIME),
+
+insert_journal_entry: Db.StatementWrapper(INSERT_JOURNAL_ENTRY),
+update_journal_entry: Db.StatementWrapper(UPDATE_JOURNAL_ENTRY),
+delete_journal_entry: Db.StatementWrapper(DELETE_JOURNAL_ENTRY),
 
 const Self = @This();
 
@@ -109,6 +121,10 @@ pub fn init(db: *Db) !Self {
         .total_time = try db.prepare(TOTAL_TIME),
         .todo_time = try db.prepare(TODO_TIME),
         .tag_time = try db.prepare(TAG_TIME),
+
+        .insert_journal_entry = try db.prepare(INSERT_JOURNAL_ENTRY),
+        .update_journal_entry = try db.prepare(UPDATE_JOURNAL_ENTRY),
+        .delete_journal_entry = try db.prepare(DELETE_JOURNAL_ENTRY),
     };
 }
 
@@ -128,4 +144,8 @@ pub fn deinit(self: *Self) void {
     self.total_time.deinit();
     self.todo_time.deinit();
     self.tag_time.deinit();
+
+    self.insert_journal_entry.deinit();
+    self.update_journal_entry.deinit();
+    self.delete_journal_entry.deinit();
 }
