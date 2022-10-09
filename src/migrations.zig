@@ -2,7 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const Db = @import("Db.zig");
 
-pub const CURRENT_VERSION = 3;
+pub const CURRENT_VERSION = 4;
 
 const CREATE_VERSION_TABLE =
     \\ CREATE TABLE _version(
@@ -79,6 +79,14 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
             \\  content = 'journals',
             \\  content_rowid = 'id',
             \\);
+        },
+    },
+    .{
+        .from = 3,
+        .to = 4,
+        .description = "add journal field to taggings",
+        .ups = &.{
+            "ALTER TABLE taggings ADD COLUMN journal DEFAULT NULL REFERENCES journals(id)",
         },
     },
 };

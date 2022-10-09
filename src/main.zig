@@ -65,7 +65,7 @@ fn addTagsToTodo(stmts: *Statements, id: i64, tags: []const u8) !void {
             break :b tag_id;
         };
 
-        try stmts.insert_tagging.exec(.{}, .{ tag_id, id });
+        try stmts.insert_tagging.exec(.{}, .{ .tag_id = tag_id, .todo_id = id, .journal_id = null });
     }
 }
 

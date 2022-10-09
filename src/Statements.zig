@@ -32,7 +32,7 @@ const GET_CLOCKED_IN_TODO =
 const INSERT_TAG = "INSERT INTO tags(val) VALUES (?) RETURNING id";
 const GET_TAG = "SELECT id FROM tags WHERE val=?";
 
-const INSERT_TAGGING = "INSERT INTO taggings(tag, todo) VALUES (?, ?);";
+const INSERT_TAGGING = "INSERT INTO taggings(tag, todo, journal) VALUES ($tag_id, $todo_id, $journal_id);";
 
 const INSERT_PERIOD = "INSERT INTO periods(todo, start) VALUES (?, strftime('%Y-%m-%dT%H:%M:%S'))";
 const CLOCK_OUT = "UPDATE periods SET end = strftime('%Y-%m-%dT%H:%M:%S') WHERE todo = ? AND end IS NULL";

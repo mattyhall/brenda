@@ -80,12 +80,12 @@ fn fetch(self: *Self) !void {
 
     const ws = self.getWinsz();
     if (selected_index < self.offset or selected_index > self.offset + ws.ws_row) {
-        if (selected_index < ws.ws_row/2) {
+        if (selected_index < ws.ws_row / 2) {
             self.offset = 0;
             return;
         }
 
-        const offset = selected_index - ws.ws_row/2;
+        const offset = selected_index - ws.ws_row / 2;
         self.offset = std.math.min(offset, self.todos.len - ws.ws_row);
     }
 }
@@ -149,20 +149,70 @@ fn changePriority(self: *Self, dir: i64) !void {
     try self.stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
 }
 
+const JournalContents = struct {
+    contents: []const u8,
+    tags: ?[][]const u8,
+};
+
+fn parseJournalContents(allocator: std.mem.Allocator, time: []const u8, entry: []const u8) !JournalContents {
+    if (entry.len < 11) return error.InvalidParse;
+    if (entry[0] != '#' or entry[1] != ' ') return error.InvalidParse;
+    if (!std.mem.eql(u8, entry[2..10], time)) return error.InvalidParse;
+
+    var i: usize = 10;
+    while (i < entry.len - 1) : (i += 1) {
+        if (entry[i] == '\n')
+            return JournalContents{ .contents = entry[i + 1 ..], .tags = null };
+        if (entry[i] == ':') {
+            break;
+        }
+    }
+
+    if (i == entry.len - 1) return JournalContents{ .contents = "", .tags = null };
+
+    var end = i + 1;
+    while (end < entry.len - 1) : (end += 1) {
+        if (entry[end] == '\n')
+            break;
+    }
+
+    var tags = std.ArrayList([]const u8).init(allocator);
+    errdefer tags.deinit();
+
+    var it = std.mem.split(u8, entry[i..end], ":");
+    while (it.next()) |v| {
+        const stripped = std.mem.trim(u8, v, " \t");
+        if (stripped.len != 0) try tags.append(stripped);
+    }
+
+    return JournalContents{ .contents = entry[end + 1 ..], .tags = tags.toOwnedSlice() };
+}
+
+fn tagJournalEntry(self: *Self, id: i64, tags: [][]const u8) !void {
+    for (tags) |tag| {
+        const tag_id = (try self.stmts.get_tag.one(i64, .{}, .{tag})) orelse b: {
+            const tag_id = (try self.stmts.insert_tag.one(i64, .{}, .{tag})) orelse return error.SqliteError;
+            break :b tag_id;
+        };
+
+        try self.stmts.insert_tagging.exec(.{}, .{ .tag_id = tag_id, .journal_id = id, .todo_id = null });
+    }
+}
+
 fn createJournalEntry(self: *Self, linked_to_selected: bool) !void {
     if (linked_to_selected and self.selected == null) return;
 
     const tid = if (linked_to_selected) self.selected else null;
 
     var allocator = self.arena.allocator();
-    const v = (try self.stmts.insert_journal_entry.oneAlloc(struct { id: i64, time: []const u8}, allocator, .{}, .{tid})) orelse return;
+    const v = (try self.stmts.insert_journal_entry.oneAlloc(struct { id: i64, time: []const u8 }, allocator, .{}, .{tid})) orelse return;
 
     const tmpl =
-    \\# {s}
-    \\
-    \\
+        \\# {s}
+        \\
+        \\
     ;
-    const contents  = try std.fmt.allocPrint(allocator, tmpl, .{ v.time });
+    const contents = try std.fmt.allocPrint(allocator, tmpl, .{v.time});
 
     const data_dir = try Db.getDataDir(allocator);
     const filename = try std.fmt.allocPrint(allocator, "tmp-journal-{}.md", .{v.id});
@@ -170,27 +220,43 @@ fn createJournalEntry(self: *Self, linked_to_selected: bool) !void {
 
     std.log.debug("opening {s}", .{tmp_file_path});
 
-    var f = try std.fs.createFileAbsolute(tmp_file_path, .{.read = true});
+    var f = try std.fs.createFileAbsolute(tmp_file_path, .{ .read = true });
     defer f.close();
     defer std.fs.deleteFileAbsolute(tmp_file_path) catch {};
     errdefer self.stmts.delete_journal_entry.exec(.{}, .{v.id}) catch {};
 
     try f.writeAll(contents);
 
-    var proc = std.ChildProcess.init(&.{ "kak", tmp_file_path, "+2"}, allocator);
-    switch (try proc.spawnAndWait()) {
-        .Exited => |e| if (e == 0) b: {
-            try f.seekTo(0);
-            const new_contents = try f.readToEndAlloc(allocator, 2 * 1024 * 1024);
-            if (std.mem.eql(u8, new_contents, contents)) break :b;
+    while (true) {
+        // TODO: allow different editors
+        var proc = std.ChildProcess.init(&.{ "kak", tmp_file_path, "+2" }, allocator);
+        switch (try proc.spawnAndWait()) {
+            .Exited => |e| if (e == 0) b: {
+                try f.seekTo(0);
+                const new_contents = try f.readToEndAlloc(allocator, 2 * 1024 * 1024);
+                // User didn't change anything so presume they don't want a journal entry
+                if (std.mem.eql(u8, new_contents, contents)) {
+                    break :b;
+                }
 
-            try self.stmts.update_journal_entry.exec(.{}, .{new_contents, v.id});
-            return;
-        },
-        else => {},
+                var res = parseJournalContents(allocator, v.time, new_contents) catch |err| switch(err) {
+                    error.InvalidParse => continue, // User made an error - dump them back in the editor
+                    else => return err, // Something else went wrong, propagate the error
+                };
+
+                const trimmed = std.mem.trim(u8, res.contents, "\n\t ");
+                try self.stmts.update_journal_entry.exec(.{}, .{ trimmed, v.id });
+
+                if (res.tags) |tags| try self.tagJournalEntry(v.id, tags);
+
+                return;
+            },
+            else => {},
+        }
+
+        try self.stmts.delete_journal_entry.exec(.{}, .{v.id});
+        return;
     }
-
-    try self.stmts.delete_journal_entry.exec(.{}, .{v.id});
 }
 
 fn update(self: *Self) !bool {
@@ -243,4 +309,49 @@ pub fn deinit(self: *const Self) !void {
     try self.stdout.writeAll("\x1b[?47l"); // Restore screen
     try self.stdout.writeAll("\x1b[u"); // Restore cursor pos
     try self.stdout.writeAll("\x1b[?25h"); // Make cursor visible
+}
+
+test "parseJournalContents invalid parses" {
+    var allocator = std.testing.allocator;
+
+    try std.testing.expectError(error.InvalidParse, parseJournalContents(allocator, "13:42:01", "foo"));
+    try std.testing.expectError(error.InvalidParse, parseJournalContents(allocator, "13:42:01", "# foo"));
+    try std.testing.expectError(error.InvalidParse, parseJournalContents(allocator, "13:42:01", "# 13:4"));
+    try std.testing.expectError(error.InvalidParse, parseJournalContents(allocator, "13:42:01", "# 13:42:02"));
+    try std.testing.expectError(error.InvalidParse, parseJournalContents(allocator, "13:42:01", "# 13:42:01"));
+}
+
+test "parseJournalContents valid parses" {
+    var allocator = std.testing.allocator;
+
+    var res = try parseJournalContents(allocator, "13:42:01", "# 13:42:01\nA");
+    try std.testing.expectEqualStrings("A", res.contents);
+    try std.testing.expectEqual(null, res.tags);
+
+    res = try parseJournalContents(allocator, "13:42:01", "# 13:42:01\nFOO");
+    try std.testing.expectEqualStrings("FOO", res.contents);
+    try std.testing.expectEqual(null, res.tags);
+
+    res = try parseJournalContents(allocator, "13:42:01", "# 13:42:01\nFOO\nBAR\nBAZ");
+    try std.testing.expectEqualStrings("FOO\nBAR\nBAZ", res.contents);
+    try std.testing.expectEqual(null, res.tags);
+
+    res = try parseJournalContents(allocator, "13:42:01", "# 13:42:01 foo:\nCONTENT");
+    try std.testing.expectEqualStrings("CONTENT", res.contents);
+    try std.testing.expectEqual(null, res.tags);
+
+    res = try parseJournalContents(allocator, "13:42:01", "# 13:42:01 :foo:\nCONTENT");
+    try std.testing.expectEqualStrings("CONTENT", res.contents);
+    try std.testing.expect(res.tags != null);
+    try std.testing.expectEqual(@intCast(usize, 1), res.tags.?.len);
+    try std.testing.expectEqualStrings("foo", res.tags.?[0]);
+    allocator.free(res.tags.?);
+
+    res = try parseJournalContents(allocator, "13:42:01", "# 13:42:01 :foo:bar:\nCONTENT");
+    try std.testing.expectEqualStrings("CONTENT", res.contents);
+    try std.testing.expect(res.tags != null);
+    try std.testing.expectEqual(@intCast(usize, 2), res.tags.?.len);
+    try std.testing.expectEqualStrings("foo", res.tags.?[0]);
+    try std.testing.expectEqualStrings("bar", res.tags.?[1]);
+    allocator.free(res.tags.?);
 }
