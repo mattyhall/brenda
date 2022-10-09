@@ -239,7 +239,7 @@ fn createJournalEntry(self: *Self, linked_to_selected: bool) !void {
                     break :b;
                 }
 
-                var res = parseJournalContents(allocator, v.time, new_contents) catch |err| switch(err) {
+                var res = parseJournalContents(allocator, v.time, new_contents) catch |err| switch (err) {
                     error.InvalidParse => continue, // User made an error - dump them back in the editor
                     else => return err, // Something else went wrong, propagate the error
                 };
@@ -257,6 +257,40 @@ fn createJournalEntry(self: *Self, linked_to_selected: bool) !void {
         try self.stmts.delete_journal_entry.exec(.{}, .{v.id});
         return;
     }
+}
+
+fn showHistory(self: *Self) !void {
+    const selected = self.selected orelse return;
+
+    var allocator = self.arena.allocator();
+
+    var proc = std.ChildProcess.init(&.{ "kak", "-e", "set buffer filetype markdown" }, allocator);
+    proc.stdin_behavior = .Pipe;
+    try proc.spawn();
+    var writer = proc.stdin.?.writer();
+
+    var it = try self.stmts.list_journal_entries_for_todo.stmt.iterator(struct {
+        id: i64,
+        entry: []const u8,
+        created: []const u8,
+        dt: []const u8,
+        tm: []const u8,
+    }, .{selected});
+
+    var last_dt: ?[]const u8 = null;
+    while (try it.nextAlloc(allocator, .{})) |entry| {
+        if (last_dt == null or !std.mem.eql(u8, entry.dt, last_dt.?)) {
+            if (last_dt != null) try writer.writeAll("\n");
+            last_dt = entry.dt;
+            try writer.print("# {s}\n", .{entry.dt});
+        }
+
+        try writer.print("## {s}\n", .{entry.tm});
+        try writer.writeAll(entry.entry);
+        try writer.writeAll("\n");
+    }
+
+    _ = try proc.wait();
 }
 
 fn update(self: *Self) !bool {
@@ -285,6 +319,7 @@ fn update(self: *Self) !bool {
 
         13 => try self.createJournalEntry(true),
         'J' => try self.createJournalEntry(false),
+        'h' => try self.showHistory(),
 
         else => {},
     }

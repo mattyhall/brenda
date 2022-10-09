@@ -9,6 +9,7 @@ const shared = @import("shared.zig");
 const term = @import("terminal.zig");
 
 var log_file: std.fs.File = undefined;
+var ui: Ui = undefined;
 
 fn setupLogging(gpa: std.mem.Allocator) !void {
     var arena = std.heap.ArenaAllocator.init(gpa);
@@ -31,6 +32,13 @@ pub fn log(
     log_file.writer().print(prefix ++ " " ++ scopePrefix ++ " " ++ format ++ "\n", args) catch unreachable;
 }
 
+pub fn panic(m: []const u8, error_return_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
+    ui.deinit() catch {};
+
+    const first_trace_addr = @returnAddress();
+    std.log.err("panic: {s}", .{m});
+    std.debug.panicImpl(error_return_trace, first_trace_addr, m);
+}
 
 fn listTodos(allocator: std.mem.Allocator, stmts: *Statements) !void {
     var stdout = std.io.getStdOut();
@@ -231,7 +239,7 @@ pub fn main() anyerror!void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len == 1) {
-        var ui = try Ui.init(allocator, &stmts);
+        ui = try Ui.init(allocator, &stmts);
         defer ui.deinit() catch {};
 
         try ui.run();

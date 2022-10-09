@@ -77,6 +77,12 @@ const INSERT_JOURNAL_ENTRY =
 ;
 const UPDATE_JOURNAL_ENTRY = "UPDATE journals SET entry = ? WHERE id = ?";
 const DELETE_JOURNAL_ENTRY = "DELETE FROM journals WHERE id = ?";
+const LIST_JOURNAL_ENTRIES_FOR_TODO =
+    \\SELECT id, entry, created, date(created) as dt, time(created) as tm
+    \\FROM journals
+    \\WHERE todo = ?
+    \\ORDER BY dt DESC, created ASC
+;
 
 insert_todo: Db.StatementWrapper(INSERT_TODO),
 update_todo: Db.StatementWrapper(UPDATE_TODO),
@@ -99,6 +105,7 @@ tag_time: Db.StatementWrapper(TAG_TIME),
 insert_journal_entry: Db.StatementWrapper(INSERT_JOURNAL_ENTRY),
 update_journal_entry: Db.StatementWrapper(UPDATE_JOURNAL_ENTRY),
 delete_journal_entry: Db.StatementWrapper(DELETE_JOURNAL_ENTRY),
+list_journal_entries_for_todo: Db.StatementWrapper(LIST_JOURNAL_ENTRIES_FOR_TODO),
 
 const Self = @This();
 
@@ -125,6 +132,7 @@ pub fn init(db: *Db) !Self {
         .insert_journal_entry = try db.prepare(INSERT_JOURNAL_ENTRY),
         .update_journal_entry = try db.prepare(UPDATE_JOURNAL_ENTRY),
         .delete_journal_entry = try db.prepare(DELETE_JOURNAL_ENTRY),
+        .list_journal_entries_for_todo = try db.prepare(LIST_JOURNAL_ENTRIES_FOR_TODO),
     };
 }
 
@@ -148,4 +156,5 @@ pub fn deinit(self: *Self) void {
     self.insert_journal_entry.deinit();
     self.update_journal_entry.deinit();
     self.delete_journal_entry.deinit();
+    self.list_journal_entries_for_todo.deinit();
 }
