@@ -168,16 +168,16 @@ fn printDuration(writer: anytype, diff: f32) !void {
 
     var d = diff;
     if (d >= 60 * 60) {
-        const hrs = d / (60 * 60);
-        try writer.print("{} hrs", .{@floatToInt(i64, hrs)});
-        d -= 60 * 60 * hrs;
+        const hrs = @floatToInt(i64, d / (60 * 60));
+        try writer.print("{} hrs", .{hrs});
+        d -= @intToFloat(f32, 60 * 60 * hrs);
         h = true;
     }
 
     if (d >= 60) {
-        const mins = d / 60;
+        const mins = @floatToInt(i64, d / 60);
         if (h) try writer.writeAll(" ");
-        try writer.print("{} mins", .{@floatToInt(i64, mins)});
+        try writer.print("{} mins", .{mins});
         return;
     } else if (h) return;
 
