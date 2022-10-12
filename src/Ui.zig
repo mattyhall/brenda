@@ -316,6 +316,10 @@ fn update(self: *Self) !bool {
 
         'i' => try self.clockIn(),
         'o' => try shared.clockOut(self.gpa, self.stmts, false),
+        'I' => {
+            try shared.clockOut(self.gpa, self.stmts, false);
+            try self.clockIn();
+        },
 
         '{' => try self.changePriority(1),
         '}' => try self.changePriority(-1),
