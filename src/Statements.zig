@@ -78,9 +78,12 @@ const INSERT_JOURNAL_ENTRY =
 const UPDATE_JOURNAL_ENTRY = "UPDATE journals SET entry = ? WHERE id = ?";
 const DELETE_JOURNAL_ENTRY = "DELETE FROM journals WHERE id = ?";
 const LIST_JOURNAL_ENTRIES_FOR_TODO =
-    \\SELECT id, entry, created, date(created) as dt, time(created) as tm
-    \\FROM journals
-    \\WHERE todo = ?
+    \\SELECT j.id, entry, created, date(created) as dt, time(created) as tm, GROUP_CONCAT(b.val, ":") AS tags
+    \\FROM journals j
+    \\LEFT JOIN taggings t ON t.journal = j.id
+    \\LEFT JOIN tags b ON b.id = t.tag
+    \\WHERE j.todo = ?
+    \\GROUP BY j.id
     \\ORDER BY dt DESC, created ASC
 ;
 

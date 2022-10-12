@@ -275,6 +275,7 @@ fn showHistory(self: *Self) !void {
         created: []const u8,
         dt: []const u8,
         tm: []const u8,
+        tags: []const u8,
     }, .{selected});
 
     var last_dt: ?[]const u8 = null;
@@ -285,7 +286,9 @@ fn showHistory(self: *Self) !void {
             try writer.print("# {s}\n", .{entry.dt});
         }
 
-        try writer.print("## {s}\n", .{entry.tm});
+        try writer.print("## {s}", .{entry.tm});
+        if (entry.tags.len != 0) try writer.print(" :{s}:", .{entry.tags});
+        try writer.writeAll("\n");
         try writer.writeAll(entry.entry);
         try writer.writeAll("\n");
     }
