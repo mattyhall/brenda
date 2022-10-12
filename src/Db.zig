@@ -87,7 +87,7 @@ pub fn StatementWrapper(comptime q: []const u8) type {
 }
 
 pub fn getDataDir(gpa: std.mem.Allocator) ![]const u8 {
-    if (std.os.getenv("BRENDA_PATH")) |path| return try std.fs.path.joinZ(gpa, &.{ path, "data.db" });
+    if (std.os.getenv("BRENDA_PATH")) |path| return path;
 
     const data_dir = try std.fs.getAppDataDir(gpa, "brenda");
     errdefer gpa.free(data_dir);
