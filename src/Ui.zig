@@ -300,6 +300,8 @@ fn showTodoHistory(self: *Self) !void {
     const selected = self.selected orelse return;
 
     var it = try self.stmts.list_journal_entries_for_todo.stmt.iterator(Entry, .{selected});
+    defer self.stmts.list_journal_entries_for_todo.stmt.reset();
+
     try self.showHistory(&it);
 }
 
