@@ -74,8 +74,17 @@ const INSERT_JOURNAL_ENTRY =
 ;
 const UPDATE_JOURNAL_ENTRY = "UPDATE journals SET entry = ? WHERE id = ?";
 const DELETE_JOURNAL_ENTRY = "DELETE FROM journals WHERE id = ?";
+const LIST_JOURNAL_ENTRIES =
+    \\SELECT j.id, entry, created, date(created) as dt, time(created) as tm, GROUP_CONCAT(b.val, ":") AS tags, c.title
+    \\FROM journals j
+    \\LEFT JOIN taggings t ON t.journal = j.id
+    \\LEFT JOIN tags b ON b.id = t.tag
+    \\LEFT JOIN todos c ON j.todo = c.id
+    \\GROUP BY j.id
+    \\ORDER BY dt DESC, created ASC
+;
 const LIST_JOURNAL_ENTRIES_FOR_TODO =
-    \\SELECT j.id, entry, created, date(created) as dt, time(created) as tm, GROUP_CONCAT(b.val, ":") AS tags
+    \\SELECT j.id, entry, created, date(created) as dt, time(created) as tm, GROUP_CONCAT(b.val, ":") AS tags, NULL as title
     \\FROM journals j
     \\LEFT JOIN taggings t ON t.journal = j.id
     \\LEFT JOIN tags b ON b.id = t.tag
@@ -105,6 +114,7 @@ tag_time: Db.StatementWrapper(TAG_TIME),
 insert_journal_entry: Db.StatementWrapper(INSERT_JOURNAL_ENTRY),
 update_journal_entry: Db.StatementWrapper(UPDATE_JOURNAL_ENTRY),
 delete_journal_entry: Db.StatementWrapper(DELETE_JOURNAL_ENTRY),
+list_journal_entries: Db.StatementWrapper(LIST_JOURNAL_ENTRIES),
 list_journal_entries_for_todo: Db.StatementWrapper(LIST_JOURNAL_ENTRIES_FOR_TODO),
 
 const Self = @This();
@@ -132,6 +142,7 @@ pub fn init(db: *Db) !Self {
         .insert_journal_entry = try db.prepare(INSERT_JOURNAL_ENTRY),
         .update_journal_entry = try db.prepare(UPDATE_JOURNAL_ENTRY),
         .delete_journal_entry = try db.prepare(DELETE_JOURNAL_ENTRY),
+        .list_journal_entries = try db.prepare(LIST_JOURNAL_ENTRIES),
         .list_journal_entries_for_todo = try db.prepare(LIST_JOURNAL_ENTRIES_FOR_TODO),
     };
 }
@@ -156,5 +167,6 @@ pub fn deinit(self: *Self) void {
     self.insert_journal_entry.deinit();
     self.update_journal_entry.deinit();
     self.delete_journal_entry.deinit();
+    self.list_journal_entries.deinit();
     self.list_journal_entries_for_todo.deinit();
 }

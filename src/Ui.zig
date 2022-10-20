@@ -16,6 +16,16 @@ todos: []shared.Todo = &[0]shared.Todo{},
 
 const Self = @This();
 
+const Entry = struct {
+    id: i64,
+    entry: []const u8,
+    created: []const u8,
+    dt: []const u8,
+    tm: []const u8,
+    tags: []const u8,
+    title: ?[]const u8,
+};
+
 pub fn init(gpa: std.mem.Allocator, stmts: *Statements) !Self {
     var stdout = std.io.getStdOut();
     var self = Self{ .gpa = gpa, .stdout = stdout, .stmts = stmts, .arena = std.heap.ArenaAllocator.init(gpa) };
@@ -259,24 +269,13 @@ fn createJournalEntry(self: *Self, linked_to_selected: bool) !void {
     }
 }
 
-fn showHistory(self: *Self) !void {
-    const selected = self.selected orelse return;
-
+fn showHistory(self: *Self, it: anytype) !void {
     var allocator = self.arena.allocator();
 
     var proc = std.ChildProcess.init(&.{ "kak", "-e", "set buffer filetype markdown" }, allocator);
     proc.stdin_behavior = .Pipe;
     try proc.spawn();
     var writer = proc.stdin.?.writer();
-
-    var it = try self.stmts.list_journal_entries_for_todo.stmt.iterator(struct {
-        id: i64,
-        entry: []const u8,
-        created: []const u8,
-        dt: []const u8,
-        tm: []const u8,
-        tags: []const u8,
-    }, .{selected});
 
     var last_dt: ?[]const u8 = null;
     while (try it.nextAlloc(allocator, .{})) |entry| {
@@ -287,6 +286,7 @@ fn showHistory(self: *Self) !void {
         }
 
         try writer.print("## {s}", .{entry.tm});
+        if (entry.title) |title| try writer.print(" ({s})", .{title});
         if (entry.tags.len != 0) try writer.print(" :{s}:", .{entry.tags});
         try writer.writeAll("\n");
         try writer.writeAll(entry.entry);
@@ -294,6 +294,18 @@ fn showHistory(self: *Self) !void {
     }
 
     _ = try proc.wait();
+}
+
+fn showTodoHistory(self: *Self) !void {
+    const selected = self.selected orelse return;
+
+    var it = try self.stmts.list_journal_entries_for_todo.stmt.iterator(Entry, .{selected});
+    try self.showHistory(&it);
+}
+
+fn showAllHistory(self: *Self) !void {
+    var it = try self.stmts.list_journal_entries.stmt.iterator(Entry, .{});
+    try self.showHistory(&it);
 }
 
 fn update(self: *Self) !bool {
@@ -326,7 +338,8 @@ fn update(self: *Self) !bool {
 
         13 => try self.createJournalEntry(true),
         'J' => try self.createJournalEntry(false),
-        'h' => try self.showHistory(),
+        'h' => try self.showTodoHistory(),
+        '.' => try self.showAllHistory(),
 
         else => {},
     }
