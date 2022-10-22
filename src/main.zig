@@ -220,6 +220,14 @@ fn report(gpa: std.mem.Allocator, stmts: *Statements) !void {
     try writer.writeAll(" logged this week\n");
 }
 
+fn newLinkShortcode(
+    stmts: *Statements,
+    shortcode: []const u8,
+    format_string: []const u8,
+) !void {
+  try stmts.insert_link_shortcode.exec(.{}, .{shortcode, format_string});
+}
+
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -301,5 +309,17 @@ pub fn main() anyerror!void {
         }
     } else if (std.mem.eql(u8, "report", std.mem.span(args[1]))) {
         try report(allocator, &stmts);
+    } else if (std.mem.eql(u8, "links", std.mem.span(args[1]))) {
+        if (args.len != 5) {
+            std.debug.print("Please pass five arguments\n", .{});
+            std.process.exit(1);
+        }
+
+        if (!std.mem.eql(u8, "new", std.mem.span(args[2]))) {
+            std.debug.print("Second argument must be new\n", .{});
+            std.process.exit(1);
+        }
+
+        try newLinkShortcode(&stmts, args[3], args[4]);
     }
 }

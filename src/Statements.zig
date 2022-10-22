@@ -93,6 +93,8 @@ const LIST_JOURNAL_ENTRIES_FOR_TODO =
     \\ORDER BY dt DESC, created ASC
 ;
 
+const INSERT_LINK_SHORTCODE = "INSERT INTO link_shortcodes(shortcode, format_string) VALUES(?, ?)";
+
 insert_todo: Db.StatementWrapper(INSERT_TODO),
 update_todo: Db.StatementWrapper(UPDATE_TODO),
 get_todo: Db.StatementWrapper(GET_TODO),
@@ -116,6 +118,8 @@ update_journal_entry: Db.StatementWrapper(UPDATE_JOURNAL_ENTRY),
 delete_journal_entry: Db.StatementWrapper(DELETE_JOURNAL_ENTRY),
 list_journal_entries: Db.StatementWrapper(LIST_JOURNAL_ENTRIES),
 list_journal_entries_for_todo: Db.StatementWrapper(LIST_JOURNAL_ENTRIES_FOR_TODO),
+
+insert_link_shortcode: Db.StatementWrapper(INSERT_LINK_SHORTCODE),
 
 const Self = @This();
 
@@ -144,6 +148,8 @@ pub fn init(db: *Db) !Self {
         .delete_journal_entry = try db.prepare(DELETE_JOURNAL_ENTRY),
         .list_journal_entries = try db.prepare(LIST_JOURNAL_ENTRIES),
         .list_journal_entries_for_todo = try db.prepare(LIST_JOURNAL_ENTRIES_FOR_TODO),
+
+        .insert_link_shortcode = try db.prepare(INSERT_LINK_SHORTCODE),
     };
 }
 
@@ -169,4 +175,6 @@ pub fn deinit(self: *Self) void {
     self.delete_journal_entry.deinit();
     self.list_journal_entries.deinit();
     self.list_journal_entries_for_todo.deinit();
+
+    self.insert_link_shortcode.deinit();
 }

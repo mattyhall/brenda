@@ -2,7 +2,7 @@ const std = @import("std");
 const sqlite = @import("sqlite");
 const Db = @import("Db.zig");
 
-pub const CURRENT_VERSION = 4;
+pub const CURRENT_VERSION = 5;
 
 const CREATE_VERSION_TABLE =
     \\ CREATE TABLE _version(
@@ -87,6 +87,26 @@ const migrations: [CURRENT_VERSION]Migration = [_]Migration{
         .description = "add journal field to taggings",
         .ups = &.{
             "ALTER TABLE taggings ADD COLUMN journal DEFAULT NULL REFERENCES journals(id)",
+        },
+    },
+    .{
+        .from = 4,
+        .to = 5,
+        .description = "add link tables",
+        .ups = &.{
+            \\CREATE TABLE link_shortcodes (
+            \\  shortcode     STRING PRIMARY KEY NOT NULL,
+            \\  format_string STRING             NOT NULL
+            \\);
+            ,
+            \\CREATE TABLE links (
+            \\  todo INTEGER NOT NULL,
+            \\  shortcode STRING NOT NULL,
+            \\  variable STRING NOT NULL,
+            \\
+            \\  FOREIGN KEY(todo) REFERENCES todos(id),
+            \\  FOREIGN KEY(shortcode) REFERENCES link_shortcodes(shortcode)
+            \\);
         },
     },
 };
