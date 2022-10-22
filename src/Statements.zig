@@ -94,6 +94,7 @@ const LIST_JOURNAL_ENTRIES_FOR_TODO =
 ;
 
 const INSERT_LINK_SHORTCODE = "INSERT INTO link_shortcodes(shortcode, format_string) VALUES(?, ?)";
+const INSERT_LINK = "INSERT INTO links(todo, shortcode, variable) VALUES (?, ?, ?)";
 
 insert_todo: Db.StatementWrapper(INSERT_TODO),
 update_todo: Db.StatementWrapper(UPDATE_TODO),
@@ -120,6 +121,7 @@ list_journal_entries: Db.StatementWrapper(LIST_JOURNAL_ENTRIES),
 list_journal_entries_for_todo: Db.StatementWrapper(LIST_JOURNAL_ENTRIES_FOR_TODO),
 
 insert_link_shortcode: Db.StatementWrapper(INSERT_LINK_SHORTCODE),
+insert_link: Db.StatementWrapper(INSERT_LINK),
 
 const Self = @This();
 
@@ -150,6 +152,7 @@ pub fn init(db: *Db) !Self {
         .list_journal_entries_for_todo = try db.prepare(LIST_JOURNAL_ENTRIES_FOR_TODO),
 
         .insert_link_shortcode = try db.prepare(INSERT_LINK_SHORTCODE),
+        .insert_link = try db.prepare(INSERT_LINK),
     };
 }
 
@@ -177,4 +180,5 @@ pub fn deinit(self: *Self) void {
     self.list_journal_entries_for_todo.deinit();
 
     self.insert_link_shortcode.deinit();
+    self.insert_link.deinit();
 }

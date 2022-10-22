@@ -77,11 +77,23 @@ fn addTagsToTodo(stmts: *Statements, id: i64, tags: []const u8) !void {
     }
 }
 
+fn addLinksToTodo(stmts: *Statements, id: i64, links: []const u8) !void {
+    var links_it = std.mem.split(u8, links, ",");
+    while (links_it.next()) |link| {
+        var link_it = std.mem.split(u8, link, "!");
+        const shortcode = link_it.next() orelse return error.CouldNotParseField;
+        const variable  = link_it.next() orelse return error.CouldNotParseField;
+
+        try stmts.insert_link.exec(.{}, .{id, shortcode, variable});
+    }
+}
+
 fn newTodo(args: [][]const u8, stmts: *Statements) !void {
     var name = args[0];
     var priority: i64 = 3;
     var state: []const u8 = "todo";
     var tags: ?[]const u8 = null;
+    var links: ?[]const u8 = null;
 
     if (args.len > 1) {
         for (args[1..]) |arg| {
@@ -92,6 +104,8 @@ fn newTodo(args: [][]const u8, stmts: *Statements) !void {
                 state = a.value;
             } else if (std.mem.eql(u8, "tags", a.key)) {
                 tags = a.value;
+            } else if (std.mem.eql(u8, "links", a.key)) {
+                links = a.value;
             }
         }
     }
@@ -100,6 +114,7 @@ fn newTodo(args: [][]const u8, stmts: *Statements) !void {
 
     const id = (try stmts.insert_todo.one(i64, .{}, .{ name, priority, @enumToInt(real_state) })) orelse return error.SqliteError;
     if (tags) |tags_s| try addTagsToTodo(stmts, id, tags_s);
+    if (links) |links_s| try addLinksToTodo(stmts, id, links_s);
 }
 
 fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, stmts: *Statements) !void {
