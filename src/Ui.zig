@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const Db = @import("Db.zig");
 const shared = @import("shared.zig");
 const term = @import("terminal.zig");
@@ -13,8 +14,12 @@ selected: ?i64 = null,
 offset: u64 = 0,
 original_terminal_settings: std.os.termios = undefined,
 todos: []shared.Todo = &[0]shared.Todo{},
+links: []shared.Link = &[0]shared.Link{},
+screen: Screen = .list,
 
 const Self = @This();
+
+const Screen = enum { list, todo };
 
 const Entry = struct {
     id: i64,
@@ -61,6 +66,20 @@ pub fn draw(self: *Self) !void {
     const winsz = self.getWinsz();
     var writer = self.stdout.writer();
 
+    if (self.screen == .todo) {
+        const selected = self.getSelected() orelse unreachable;
+        try selected.write(self.arena.allocator(), writer, winsz.ws_col, false);
+
+        try self.stdout.writeAll("\n\n");
+
+        for (self.links) |link, i| {
+            if (i > 9) break;
+            try self.stdout.writer().print("{} {s}!{s}\n", .{i, link.shortcode, link.variable});
+        }
+        
+        return;
+    }
+
     for (self.todos) |todo, i| {
         if (i < self.offset) continue;
         if (i - self.offset >= winsz.ws_row) break;
@@ -79,6 +98,8 @@ fn fetch(self: *Self) !void {
         self.selected = self.todos[0].id;
         return;
     };
+
+    self.links = try self.stmts.get_links.all(shared.Link, self.arena.allocator(), .{}, .{selected});
 
     const selected_index = b: {
         for (self.todos) |t, i| {
@@ -310,40 +331,72 @@ fn showAllHistory(self: *Self) !void {
     try self.showHistory(&it);
 }
 
+fn openLink(self: *Self, index: u8) !void {
+    if (index >= self.links.len) return;
+    const link = self.links[index];
+
+    const size = std.mem.replacementSize(u8, link.format_string, "%s", link.variable);
+    var url = try self.arena.allocator().alloc(u8, size);
+
+    _ = std.mem.replace(u8, link.format_string, "%s", link.variable, url);
+
+    std.log.debug("Opening {s}!{s} ({s})", .{link.shortcode, link.variable, url});
+
+    var args = if (builtin.os.tag == .linux) &.{"xdg-open", url} else &.{"open", url};
+
+    var proc = std.ChildProcess.init(args, self.arena.allocator());
+    proc.stdout_behavior = .Ignore;
+    proc.stderr_behavior = .Ignore;
+    _ = try proc.spawnAndWait();
+}
+
 fn update(self: *Self) !bool {
     var stdin = std.io.getStdIn();
     var buf: [1]u8 = undefined;
     _ = try stdin.read(&buf);
 
-    switch (buf[0]) {
-        'q' => return true,
+    if (self.screen == .todo) b: {
+        switch (buf[0]) {
+            27, '\t' => self.screen = .list,
+            'q' => return true,
+            else => {},
+        }
 
-        'j' => self.selectedIndexInc(.down),
-        'k' => self.selectedIndexInc(.up),
+        const index = if (buf[0] >= '0' and buf[0] <= '9') buf[0] - '0' else break :b;
+        try self.openLink(index);
+    } else {
+        switch (buf[0]) {
+            'q' => return true,
 
-        'r' => try self.changeSelectedState(.in_review),
-        'p' => try self.changeSelectedState(.in_progress),
-        't' => try self.changeSelectedState(.todo),
-        'b' => try self.changeSelectedState(.blocked),
-        'd' => try self.changeSelectedState(.done),
-        'c' => try self.changeSelectedState(.cancelled),
+            'j' => self.selectedIndexInc(.down),
+            'k' => self.selectedIndexInc(.up),
 
-        'i' => try self.clockIn(),
-        'o' => try shared.clockOut(self.gpa, self.stmts, false),
-        'I' => {
-            try shared.clockOut(self.gpa, self.stmts, false);
-            try self.clockIn();
-        },
+            'r' => try self.changeSelectedState(.in_review),
+            'p' => try self.changeSelectedState(.in_progress),
+            't' => try self.changeSelectedState(.todo),
+            'b' => try self.changeSelectedState(.blocked),
+            'd' => try self.changeSelectedState(.done),
+            'c' => try self.changeSelectedState(.cancelled),
 
-        '{' => try self.changePriority(1),
-        '}' => try self.changePriority(-1),
+            'i' => try self.clockIn(),
+            'o' => try shared.clockOut(self.gpa, self.stmts, false),
+            'I' => {
+                try shared.clockOut(self.gpa, self.stmts, false);
+                try self.clockIn();
+            },
 
-        13 => try self.createJournalEntry(true),
-        'J' => try self.createJournalEntry(false),
-        'h' => try self.showTodoHistory(),
-        '.' => try self.showAllHistory(),
+            '{' => try self.changePriority(1),
+            '}' => try self.changePriority(-1),
 
-        else => {},
+            13 => try self.createJournalEntry(true),
+            'J' => try self.createJournalEntry(false),
+            'h' => try self.showTodoHistory(),
+            '.' => try self.showAllHistory(),
+
+            '\t' => self.screen = .todo,
+
+            else => {},
+        }
     }
 
     try self.fetch();

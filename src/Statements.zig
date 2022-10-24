@@ -93,6 +93,12 @@ const LIST_JOURNAL_ENTRIES_FOR_TODO =
     \\ORDER BY dt DESC, created ASC
 ;
 
+const GET_LINKS =
+    \\SELECT l.shortcode, l.variable, s.format_string
+    \\FROM links l
+    \\JOIN link_shortcodes s ON s.shortcode = l.shortcode
+    \\WHERE l.todo=?
+;
 const INSERT_LINK_SHORTCODE = "INSERT INTO link_shortcodes(shortcode, format_string) VALUES(?, ?)";
 const INSERT_LINK = "INSERT INTO links(todo, shortcode, variable) VALUES (?, ?, ?)";
 
@@ -120,6 +126,7 @@ delete_journal_entry: Db.StatementWrapper(DELETE_JOURNAL_ENTRY),
 list_journal_entries: Db.StatementWrapper(LIST_JOURNAL_ENTRIES),
 list_journal_entries_for_todo: Db.StatementWrapper(LIST_JOURNAL_ENTRIES_FOR_TODO),
 
+get_links: Db.StatementWrapper(GET_LINKS),
 insert_link_shortcode: Db.StatementWrapper(INSERT_LINK_SHORTCODE),
 insert_link: Db.StatementWrapper(INSERT_LINK),
 
@@ -151,6 +158,7 @@ pub fn init(db: *Db) !Self {
         .list_journal_entries = try db.prepare(LIST_JOURNAL_ENTRIES),
         .list_journal_entries_for_todo = try db.prepare(LIST_JOURNAL_ENTRIES_FOR_TODO),
 
+        .get_links = try db.prepare(GET_LINKS),
         .insert_link_shortcode = try db.prepare(INSERT_LINK_SHORTCODE),
         .insert_link = try db.prepare(INSERT_LINK),
     };
@@ -179,6 +187,7 @@ pub fn deinit(self: *Self) void {
     self.list_journal_entries.deinit();
     self.list_journal_entries_for_todo.deinit();
 
+    self.get_links.deinit();
     self.insert_link_shortcode.deinit();
     self.insert_link.deinit();
 }

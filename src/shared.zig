@@ -45,6 +45,12 @@ pub const TodoState = enum {
     }
 };
 
+pub const Link = struct {
+    shortcode: []const u8,
+    variable: []const u8,
+    format_string: []const u8,
+};
+
 pub const Todo = struct {
     id: i64,
     title: []const u8,
