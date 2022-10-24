@@ -122,6 +122,7 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, stmts: *Statements) !voi
     var todo = (try stmts.get_todo.oneAlloc(shared.Todo, gpa, .{}, .{tid})) orelse return error.NotFound;
 
     var tags: ?[]const u8 = null;
+    var links: ?[]const u8 = null;
 
     for (args[1..]) |arg| {
         const a = try Arg.parse(arg);
@@ -133,12 +134,15 @@ fn editTodo(gpa: std.mem.Allocator, args: [][]const u8, stmts: *Statements) !voi
             todo.state = std.meta.stringToEnum(shared.TodoState, a.value) orelse return error.CouldNotParseField;
         } else if (std.mem.eql(u8, "tags", a.key)) {
             tags = a.value;
+        } else if (std.mem.eql(u8, "links", a.key)) {
+            links = a.value;
         }
     }
 
     try stmts.update_todo.exec(.{}, .{ .title = todo.title, .priority = todo.priority, .state = todo.state, .id = todo.id });
 
     if (tags) |tags_s| try addTagsToTodo(stmts, todo.id, tags_s);
+    if (links) |links_s| try addLinksToTodo(stmts, todo.id, links_s);
 }
 
 fn clockIn(gpa: std.mem.Allocator, arg: []const u8, stmts: *Statements) !void {
